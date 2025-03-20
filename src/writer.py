@@ -560,57 +560,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
         return False
 
-    def on_bold_toggled(self, btn):
-        self.is_bold = btn.get_active()
-        print(self.is_bold)
-        self.exec_js("document.execCommand('bold')")
-        self.is_bold = True
-        self.bold_btn.set_active(self.is_bold)
-        print(self.is_bold)
-        self.webview.grab_focus()
-
-    def on_bold_toggled(self, btn):
-        
-        # Query the current bold state from the document
-        is_bold = self.exec_js("document.queryCommandState('bold')")
-        
-        # Execute the bold command
-        self.exec_js("document.execCommand('bold')")
-        # Set the instance variable and button state based on JS result
-        self.is_bold = is_bold
-        self.bold_btn.set_active(self.is_bold)
-        
-        print(self.is_bold)
-        self.webview.grab_focus()
-
-    def on_bold_toggled(self, btn):
-        
-        # Try to get the bold state
-        try:
-            # Check if the method returns anything
-            bold_state = self.exec_js("document.queryCommandState('bold')")
-            print(f"Raw bold state from JS: {bold_state}")
-            
-            if bold_state is None:
-                print("Warning: queryCommandState returned None")
-                # Fallback: toggle the state manually if JS isn't cooperating
-                self.is_bold = not self.is_bold if hasattr(self, 'is_bold') else btn.get_active()
-            else:
-                self.is_bold = bool(bold_state)
-                
-        except Exception as e:
-            print(f"Error getting bold state: {e}")
-            # Fallback on error
-            self.is_bold = not self.is_bold if hasattr(self, 'is_bold') else btn.get_active()
-        
-        # First, execute the bold command
-        self.exec_js("document.execCommand('bold')")
-        # Update button state
-        self.bold_btn.set_active(self.is_bold)
-        print(f"Final bold state: {self.is_bold}")
-        
-        self.webview.grab_focus()
-
     def exec_js_with_result(self, js_code, callback):
         if hasattr(self.webview, 'run_javascript'):
             self.webview.run_javascript(js_code, None, callback, None)
@@ -749,22 +698,6 @@ class EditorWindow(Adw.ApplicationWindow):
         
         self.exec_js("document.execCommand('strikethrough')")
         self.exec_js_with_result("document.queryCommandState('strikethrough')", get_strikethrough_state)
-
-
-
-    def on_bullet_list_toggled(self, btn):
-        self.is_bullet_list = btn.get_active()
-        self.exec_js("document.execCommand('insertUnorderedList')")
-        self.bullet_btn.set_active(self.is_bullet_list)
-        self.webview.grab_focus()
-        
-    def on_number_list_toggled(self, btn):
-        print(f"self.is_number_list = {self.is_number_list}. before")
-        self.is_number_list = btn.get_active()
-        self.exec_js("document.execCommand('insertOrderedList')")
-        print(f"self.is_number_list = {self.is_number_list}. After")
-        self.number_btn.set_active(self.is_number_list)
-        self.webview.grab_focus()
         
     def on_bullet_list_toggled(self, btn):
         if hasattr(self, '_processing_bullet_toggle') and self._processing_bullet_toggle:
@@ -869,26 +802,6 @@ class EditorWindow(Adw.ApplicationWindow):
         if item := dropdown.get_selected_item():
             size = item.get_string()
             self.exec_js(f"document.execCommand('fontSize', false, '{int(size)//2}')")
-
-    def on_align_left(self, btn):
-        self.is_align_left = btn.get_active()
-        self.exec_js("document.execCommand('justifyLeft')")
-        self.webview.grab_focus()
-
-    def on_align_center(self, btn):
-        self.is_align_center = btn.get_active()
-        self.exec_js("document.execCommand('justifyCenter')")
-        self.webview.grab_focus()
-
-    def on_align_right(self, btn):
-        self.is_align_right = btn.get_active()
-        self.exec_js("document.execCommand('justifyRight')")
-        self.webview.grab_focus()
-
-    def on_align_justify(self, btn):
-        self.is_align_justify = btn.get_active()
-        self.exec_js("document.execCommand('justifyFull')")
-        self.webview.grab_focus()
 
     def on_align_left(self, btn):
         if hasattr(self, '_processing_align_left') and self._processing_align_left:
