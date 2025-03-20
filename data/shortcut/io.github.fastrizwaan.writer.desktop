@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Writer
+Type=Application
+Comment=A html rich text editor
+Exec=writer %F
+MimeType=text/html;
+Icon=io.github.fastrizwaan.writer
+StartupNotify=true
+Categories=Office;
+Keywords=richtext;word;html;wysiwyg;document;rtf;
