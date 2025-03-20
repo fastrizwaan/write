@@ -501,6 +501,34 @@ class EditorWindow(Adw.ApplicationWindow):
             elif keyval in (Gdk.KEY_M, Gdk.KEY_m):
                 self.on_indent_more(None)
                 return True
+            elif keyval == Gdk.KEY_0:
+                self.heading_dropdown.set_selected(0)  # Normal
+                self.on_heading_changed(self.heading_dropdown)
+                return True
+            elif keyval == Gdk.KEY_1:
+                self.heading_dropdown.set_selected(1)  # H1
+                self.on_heading_changed(self.heading_dropdown)
+                return True
+            elif keyval == Gdk.KEY_2:
+                self.heading_dropdown.set_selected(2)  # H2
+                self.on_heading_changed(self.heading_dropdown)
+                return True
+            elif keyval == Gdk.KEY_3:
+                self.heading_dropdown.set_selected(3)  # H3
+                self.on_heading_changed(self.heading_dropdown)
+                return True
+            elif keyval == Gdk.KEY_4:
+                self.heading_dropdown.set_selected(4)  # H4
+                self.on_heading_changed(self.heading_dropdown)
+                return True
+            elif keyval == Gdk.KEY_5:
+                self.heading_dropdown.set_selected(5)  # H5
+                self.on_heading_changed(self.heading_dropdown)
+                return True
+            elif keyval == Gdk.KEY_6:
+                self.heading_dropdown.set_selected(6)  # H6
+                self.on_heading_changed(self.heading_dropdown)
+                return True
         elif ctrl and shift:
             if keyval == Gdk.KEY_S:
                 self.on_save_as_clicked(None)
