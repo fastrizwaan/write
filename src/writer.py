@@ -35,7 +35,9 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_align_center = False
         self.is_align_right = False
         self.is_align_justify = False
-
+        self.current_font = "Sans"
+        self.current_font_size = "11"
+        
         # Document state
         self.current_file = None
         self.is_new = True
@@ -181,10 +183,11 @@ class EditorWindow(Adw.ApplicationWindow):
         text_style_group.append(self.font_dropdown)
 
         size_store = Gtk.StringList()
-        for size in ["8", "10", "11", "12", "14", "16", "18", "24", "36"]:
+        for size in ["6", "7", "8", "9", "10", "10.5", "11", "12", "13", "14", "15", "16", "18", "20", "21", "22", "24", "26", "28", "32", "36", "40", "42", "44", "48", "54", "60", "66", "72", "80", "88", "96"]:
+
             size_store.append(size)
         self.size_dropdown = Gtk.DropDown(model=size_store)
-        self.size_dropdown.set_selected(2)  # 11pt
+        self.size_dropdown.set_selected(6)  # 11pt
         self.size_dropdown_handler = self.size_dropdown.connect("notify::selected", self.on_font_size_changed)
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
@@ -327,82 +330,102 @@ class EditorWindow(Adw.ApplicationWindow):
         else:
             print("Error: Expected a string message, got something else")
 
-    def update_formatting_ui(self, state):
-        # Toggle buttons
-        self.bold_btn.handler_block_by_func(self.on_bold_toggled)
-        self.bold_btn.set_active(state.get('bold', False))
-        self.bold_btn.handler_unblock_by_func(self.on_bold_toggled)
+    def update_formatting_ui(self, state=None):
+        if state:
+            # Toggle buttons
+            self.bold_btn.handler_block_by_func(self.on_bold_toggled)
+            self.bold_btn.set_active(state.get('bold', False))
+            self.bold_btn.handler_unblock_by_func(self.on_bold_toggled)
 
-        self.italic_btn.handler_block_by_func(self.on_italic_toggled)
-        self.italic_btn.set_active(state.get('italic', False))
-        self.italic_btn.handler_unblock_by_func(self.on_italic_toggled)
+            self.italic_btn.handler_block_by_func(self.on_italic_toggled)
+            self.italic_btn.set_active(state.get('italic', False))
+            self.italic_btn.handler_unblock_by_func(self.on_italic_toggled)
 
-        self.underline_btn.handler_block_by_func(self.on_underline_toggled)
-        self.underline_btn.set_active(state.get('underline', False))
-        self.underline_btn.handler_unblock_by_func(self.on_underline_toggled)
+            self.underline_btn.handler_block_by_func(self.on_underline_toggled)
+            self.underline_btn.set_active(state.get('underline', False))
+            self.underline_btn.handler_unblock_by_func(self.on_underline_toggled)
 
-        self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
-        self.strikethrough_btn.set_active(state.get('strikethrough', False))
-        self.strikethrough_btn.handler_unblock_by_func(self.on_strikethrough_toggled)
+            self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
+            self.strikethrough_btn.set_active(state.get('strikethrough', False))
+            self.strikethrough_btn.handler_unblock_by_func(self.on_strikethrough_toggled)
 
-        # List buttons
-        self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
-        self.bullet_btn.set_active(state.get('insertUnorderedList', False))
-        self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
+            # List buttons
+            self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
+            self.bullet_btn.set_active(state.get('insertUnorderedList', False))
+            self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
 
-        self.number_btn.handler_block_by_func(self.on_number_list_toggled)
-        self.number_btn.set_active(state.get('insertOrderedList', False))
-        self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
+            self.number_btn.handler_block_by_func(self.on_number_list_toggled)
+            self.number_btn.set_active(state.get('insertOrderedList', False))
+            self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
 
-        # Alignment buttons with explicit handler mapping
-        align_states = {
-            'justifyLeft': (self.align_left_btn, self.on_align_left),
-            'justifyCenter': (self.align_center_btn, self.on_align_center),
-            'justifyRight': (self.align_right_btn, self.on_align_right),
-            'justifyFull': (self.align_justify_btn, self.on_align_justify)
-        }
-        for align, (btn, handler) in align_states.items():
-            btn.handler_block_by_func(handler)
-            btn.set_active(state.get(align, False))
-            btn.handler_unblock_by_func(handler)
+            # Alignment buttons
+            align_states = {
+                'justifyLeft': (self.align_left_btn, self.on_align_left),
+                'justifyCenter': (self.align_center_btn, self.on_align_center),
+                'justifyRight': (self.align_right_btn, self.on_align_right),
+                'justifyFull': (self.align_justify_btn, self.on_align_justify)
+            }
+            for align, (btn, handler) in align_states.items():
+                btn.handler_block_by_func(handler)
+                btn.set_active(state.get(align, False))
+                btn.handler_unblock_by_func(handler)
 
-        # Paragraph style
-        format_block = state.get('formatBlock', 'p').lower()
-        headings = ["p", "h1", "h2", "h3", "h4", "h5", "h6"]
-        index = 0 if format_block not in headings else headings.index(format_block)
-        self.heading_dropdown.handler_block(self.heading_dropdown_handler)
-        self.heading_dropdown.set_selected(index)
-        self.heading_dropdown.handler_unblock(self.heading_dropdown_handler)
+            # Paragraph style
+            format_block = state.get('formatBlock', 'p').lower()
+            headings = ["p", "h1", "h2", "h3", "h4", "h5", "h6"]
+            index = 0 if format_block not in headings else headings.index(format_block)
+            self.heading_dropdown.handler_block(self.heading_dropdown_handler)
+            self.heading_dropdown.set_selected(index)
+            self.heading_dropdown.handler_unblock(self.heading_dropdown_handler)
 
-        # Font family
-        font_name = state.get('fontName', 'Serif').lower()
-        font_store = self.font_dropdown.get_model()
-        selected_index = 0
-        for i in range(font_store.get_n_items()):
-            if font_store.get_string(i).lower() == font_name:
-                selected_index = i
-                break
-        self.font_dropdown.handler_block(self.font_dropdown_handler)
-        self.font_dropdown.set_selected(selected_index)
-        self.font_dropdown.handler_unblock(self.font_dropdown_handler)
+            # Font family detection
+            detected_font = state.get('fontName', self.current_font).lower()
+            font_store = self.font_dropdown.get_model()
+            selected_font_index = 0
+            for i in range(font_store.get_n_items()):
+                if font_store.get_string(i).lower() in detected_font:
+                    selected_font_index = i
+                    self.current_font = font_store.get_string(i)
+                    break
+            self.font_dropdown.handler_block(self.font_dropdown_handler)
+            self.font_dropdown.set_selected(selected_font_index)
+            self.font_dropdown.handler_unblock(self.font_dropdown_handler)
 
-        # Font size
-        font_size_str = state.get('fontSize', '3')
-        try:
-            font_size = int(font_size_str)
-        except ValueError:
-            font_size = 3
-        size_mapping = {1: "8", 2: "10", 3: "11", 4: "12", 5: "14", 6: "16", 7: "18"}
-        size_str = size_mapping.get(font_size, "11")
-        size_store = self.size_dropdown.get_model()
-        selected_index = 2  # Default to 11pt
-        for i in range(size_store.get_n_items()):
-            if size_store.get_string(i) == size_str:
-                selected_index = i
-                break
-        self.size_dropdown.handler_block(self.size_dropdown_handler)
-        self.size_dropdown.set_selected(selected_index)
-        self.size_dropdown.handler_unblock(self.size_dropdown_handler)
+            # Font size detection (convert px to pt)
+            detected_size_px = float(state.get('fontSize', '11'))
+            # Convert px to pt (approx: 1pt = 1.333px)
+            detected_size_pt = str(round(detected_size_px / 1.333))
+            size_store = self.size_dropdown.get_model()
+            selected_size_index = 6  # Default to 11pt
+            for i in range(size_store.get_n_items()):
+                if size_store.get_string(i) == detected_size_pt:
+                    selected_size_index = i
+                    self.current_font_size = detected_size_pt
+                    break
+            self.size_dropdown.handler_block(self.size_dropdown_handler)
+            self.size_dropdown.set_selected(selected_size_index)
+            self.size_dropdown.handler_unblock(self.size_dropdown_handler)
+        else:
+            # When called without state, just update dropdowns with current values
+            font_store = self.font_dropdown.get_model()
+            selected_font_index = 0
+            for i in range(font_store.get_n_items()):
+                if font_store.get_string(i).lower() == self.current_font.lower():
+                    selected_font_index = i
+                    break
+            self.font_dropdown.handler_block(self.font_dropdown_handler)
+            self.font_dropdown.set_selected(selected_font_index)
+            self.font_dropdown.handler_unblock(self.font_dropdown_handler)
+
+            size_store = self.size_dropdown.get_model()
+            selected_size_index = 6  # Default to 11pt
+            for i in range(size_store.get_n_items()):
+                if size_store.get_string(i) == self.current_font_size:
+                    selected_size_index = i
+                    break
+            self.size_dropdown.handler_block(self.size_dropdown_handler)
+            self.size_dropdown.set_selected(selected_size_index)
+            self.size_dropdown.handler_unblock(self.size_dropdown_handler)
 
 
     def exec_js(self, script):
@@ -906,14 +929,85 @@ class EditorWindow(Adw.ApplicationWindow):
 
     def on_font_family_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
-            font = item.get_string()
-            self.exec_js(f"document.execCommand('fontName', false, '{font}')")
+            self.current_font = item.get_string()
+            self.apply_font_and_size_to_typing()
+            self.update_formatting_ui()
+
+    def on_font_family_changed(self, dropdown, *args):
+        if item := dropdown.get_selected_item():
+            self.current_font = item.get_string()
+            self.apply_font_and_size_to_typing()
+            self.update_formatting_ui()
 
     def on_font_size_changed(self, dropdown, *args):
         if item := dropdown.get_selected_item():
-            size = item.get_string()
-            self.exec_js(f"document.execCommand('fontSize', false, '{int(size)//2}')")
+            self.current_font_size = item.get_string()
+            self.apply_font_and_size_to_typing()
+            self.update_formatting_ui()
+            
+    def apply_font_and_size_to_typing(self):
+        script = f"""
+            (function() {{
+                let currentFont = '{self.current_font}';
+                let currentFontSize = '{self.current_font_size}';
+                let sel = window.getSelection();
+                if (!sel.rangeCount) return;
+                let range = sel.getRangeAt(0);
+                if (range.collapsed) {{
+                    // No selection, set styles for new text
+                    let span = document.createElement('span');
+                    span.style.fontFamily = currentFont;
+                    span.style.fontSize = currentFontSize + 'pt';
+                    span.innerHTML = '\\u200B'; // Zero-width space to hold cursor
+                    range.insertNode(span);
+                    range.setStart(span.firstChild, 1);
+                    range.setEnd(span.firstChild, 1);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }} else {{
+                    // Selection exists, apply to selected text
+                    document.execCommand('fontName', false, currentFont);
+                    let wrapper = document.createElement('span');
+                    wrapper.style.fontSize = currentFontSize + 'pt';
+                    try {{
+                        range.surroundContents(wrapper);
+                    }} catch (e) {{
+                        console.log("Cannot surround range: " + e);
+                        // Fallback for complex selections
+                        let nodes = getTextNodesInRange(range);
+                        nodes.forEach(node => {{
+                            let span = document.createElement('span');
+                            span.style.fontSize = currentFontSize + 'pt';
+                            node.parentNode.insertBefore(span, node);
+                            span.appendChild(node);
+                        }});
+                    }}
+                }}
 
+                // Helper function to get text nodes within the selection
+                function getTextNodesInRange(range) {{
+                    let walker = document.createTreeWalker(
+                        range.commonAncestorContainer,
+                        NodeFilter.SHOW_TEXT,
+                        {{
+                            acceptNode: function(node) {{
+                                if (range.intersectsNode(node)) {{
+                                    return NodeFilter.FILTER_ACCEPT;
+                                }}
+                            }}
+                        }}
+                    );
+                    let nodes = [];
+                    let node;
+                    while (node = walker.nextNode()) {{
+                        nodes.push(node);
+                    }}
+                    return nodes;
+                }}
+            }})();
+        """
+        self.exec_js(script)
+        
     def on_align_left(self, btn):
         if hasattr(self, '_processing_align_left') and self._processing_align_left:
             return
