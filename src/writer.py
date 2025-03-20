@@ -506,6 +506,9 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.align_justify_btn.set_active(self.is_align_justify)
                 self.exec_js("document.execCommand('justifyFull')")
                 return True
+            elif keyval in (Gdk.KEY_M, Gdk.KEY_m):
+                self.on_indent_more(None)
+                return True
         elif ctrl and shift:
             if keyval == Gdk.KEY_S:
                 self.on_save_as_clicked(None)
@@ -524,6 +527,9 @@ class EditorWindow(Adw.ApplicationWindow):
                 return True
             elif keyval == Gdk.KEY_ampersand:
                 self.on_number_list_toggled(self.number_btn)
+                return True
+            elif keyval == Gdk.KEY_M:
+                self.on_indent_less(None)
                 return True
         elif not ctrl:
             if keyval == Gdk.KEY_F12 and not shift:
