@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import json
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -67,6 +68,8 @@ class EditorWindow(Adw.ApplicationWindow):
         user_content = self.webview.get_user_content_manager()
         user_content.register_script_message_handler('contentChanged')
         user_content.connect('script-message-received::contentChanged', self.on_content_changed_js)
+        user_content.register_script_message_handler('selectionChanged')
+        user_content.connect('script-message-received::selectionChanged', self.on_selection_changed)
         self.webview.connect('load-changed', self.on_webview_load)
 
         self.initial_html = """<!DOCTYPE html>
@@ -165,7 +168,7 @@ class EditorWindow(Adw.ApplicationWindow):
         for h in ["Normal", "H1", "H2", "H3", "H4", "H5", "H6"]:
             heading_store.append(h)
         self.heading_dropdown = Gtk.DropDown(model=heading_store)
-        self.heading_dropdown.connect("notify::selected", self.on_heading_changed)
+        self.heading_dropdown_handler = self.heading_dropdown.connect("notify::selected", self.on_heading_changed)
         self.heading_dropdown.add_css_class("flat")
         text_style_group.append(self.heading_dropdown)
 
@@ -173,7 +176,7 @@ class EditorWindow(Adw.ApplicationWindow):
         for name in sorted(["Sans", "Serif", "Monospace"]):
             font_store.append(name)
         self.font_dropdown = Gtk.DropDown(model=font_store)
-        self.font_dropdown.connect("notify::selected", self.on_font_family_changed)
+        self.font_dropdown_handler = self.font_dropdown.connect("notify::selected", self.on_font_family_changed)
         self.font_dropdown.add_css_class("flat")
         text_style_group.append(self.font_dropdown)
 
@@ -181,8 +184,8 @@ class EditorWindow(Adw.ApplicationWindow):
         for size in ["8", "10", "11", "12", "14", "16", "18", "24", "36"]:
             size_store.append(size)
         self.size_dropdown = Gtk.DropDown(model=size_store)
-        self.size_dropdown.set_selected(6)  # 11pt
-        self.size_dropdown.connect("notify::selected", self.on_font_size_changed)
+        self.size_dropdown.set_selected(2)  # 11pt
+        self.size_dropdown_handler = self.size_dropdown.connect("notify::selected", self.on_font_size_changed)
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
 
@@ -262,17 +265,16 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_webview_load(self, webview, load_event):
         if load_event == WebKit.LoadEvent.FINISHED:
             self.webview.evaluate_javascript("""
-                let p = document.querySelector('p');
-                if (p) {
-                    let range = document.createRange();
-                    range.setStart(p, 0);
-                    range.setEnd(p, 0);
-                    let sel = window.getSelection();
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                }
                 (function() {
-                    let lastContent = document.body.innerHTML;
+                    let p = document.querySelector('p');
+                    if (p) {
+                        let range = document.createRange();
+                        range.setStart(p, 0);
+                        range.setEnd(p, 0);
+                        let sel = window.getSelection();
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
                     function debounce(func, wait) {
                         let timeout;
                         return function(...args) {
@@ -280,6 +282,7 @@ class EditorWindow(Adw.ApplicationWindow):
                             timeout = setTimeout(() => func(...args), wait);
                         };
                     }
+                    let lastContent = document.body.innerHTML;
                     const notifyChange = debounce(function() {
                         let currentContent = document.body.innerHTML;
                         if (currentContent !== lastContent) {
@@ -290,9 +293,117 @@ class EditorWindow(Adw.ApplicationWindow):
                     document.addEventListener('input', notifyChange);
                     document.addEventListener('paste', notifyChange);
                     document.addEventListener('cut', notifyChange);
+
+                    const notifySelectionChange = debounce(function() {
+                        const state = {
+                            bold: document.queryCommandState('bold'),
+                            italic: document.queryCommandState('italic'),
+                            underline: document.queryCommandState('underline'),
+                            strikethrough: document.queryCommandState('strikethrough'),
+                            formatBlock: document.queryCommandValue('formatBlock') || 'p',
+                            fontName: document.queryCommandValue('fontName') || 'Serif',
+                            fontSize: document.queryCommandValue('fontSize') || '3',
+                            insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+                            insertOrderedList: document.queryCommandState('insertOrderedList'),
+                            justifyLeft: document.queryCommandState('justifyLeft'),
+                            justifyCenter: document.queryCommandState('justifyCenter'),
+                            justifyRight: document.queryCommandState('justifyRight'),
+                            justifyFull: document.queryCommandState('justifyFull')
+                        };
+                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                    }, 100);
+                    document.addEventListener('selectionchange', notifySelectionChange);
+                    notifySelectionChange(); // Initial state
                 })();
             """, -1, None, None, None, None, None)
             GLib.idle_add(self.webview.grab_focus)
+
+
+    def on_selection_changed(self, user_content, message):
+        if message.is_string():
+            state_str = message.to_string()
+            state = json.loads(state_str)
+            self.update_formatting_ui(state)
+        else:
+            print("Error: Expected a string message, got something else")
+
+    def update_formatting_ui(self, state):
+        # Toggle buttons
+        self.bold_btn.handler_block_by_func(self.on_bold_toggled)
+        self.bold_btn.set_active(state.get('bold', False))
+        self.bold_btn.handler_unblock_by_func(self.on_bold_toggled)
+
+        self.italic_btn.handler_block_by_func(self.on_italic_toggled)
+        self.italic_btn.set_active(state.get('italic', False))
+        self.italic_btn.handler_unblock_by_func(self.on_italic_toggled)
+
+        self.underline_btn.handler_block_by_func(self.on_underline_toggled)
+        self.underline_btn.set_active(state.get('underline', False))
+        self.underline_btn.handler_unblock_by_func(self.on_underline_toggled)
+
+        self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
+        self.strikethrough_btn.set_active(state.get('strikethrough', False))
+        self.strikethrough_btn.handler_unblock_by_func(self.on_strikethrough_toggled)
+
+        # List buttons
+        self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
+        self.bullet_btn.set_active(state.get('insertUnorderedList', False))
+        self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
+
+        self.number_btn.handler_block_by_func(self.on_number_list_toggled)
+        self.number_btn.set_active(state.get('insertOrderedList', False))
+        self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
+
+        # Alignment buttons with explicit handler mapping
+        align_states = {
+            'justifyLeft': (self.align_left_btn, self.on_align_left),
+            'justifyCenter': (self.align_center_btn, self.on_align_center),
+            'justifyRight': (self.align_right_btn, self.on_align_right),
+            'justifyFull': (self.align_justify_btn, self.on_align_justify)
+        }
+        for align, (btn, handler) in align_states.items():
+            btn.handler_block_by_func(handler)
+            btn.set_active(state.get(align, False))
+            btn.handler_unblock_by_func(handler)
+
+        # Paragraph style
+        format_block = state.get('formatBlock', 'p').lower()
+        headings = ["p", "h1", "h2", "h3", "h4", "h5", "h6"]
+        index = 0 if format_block not in headings else headings.index(format_block)
+        self.heading_dropdown.handler_block(self.heading_dropdown_handler)
+        self.heading_dropdown.set_selected(index)
+        self.heading_dropdown.handler_unblock(self.heading_dropdown_handler)
+
+        # Font family
+        font_name = state.get('fontName', 'Serif').lower()
+        font_store = self.font_dropdown.get_model()
+        selected_index = 0
+        for i in range(font_store.get_n_items()):
+            if font_store.get_string(i).lower() == font_name:
+                selected_index = i
+                break
+        self.font_dropdown.handler_block(self.font_dropdown_handler)
+        self.font_dropdown.set_selected(selected_index)
+        self.font_dropdown.handler_unblock(self.font_dropdown_handler)
+
+        # Font size
+        font_size_str = state.get('fontSize', '3')
+        try:
+            font_size = int(font_size_str)
+        except ValueError:
+            font_size = 3
+        size_mapping = {1: "8", 2: "10", 3: "11", 4: "12", 5: "14", 6: "16", 7: "18"}
+        size_str = size_mapping.get(font_size, "11")
+        size_store = self.size_dropdown.get_model()
+        selected_index = 2  # Default to 11pt
+        for i in range(size_store.get_n_items()):
+            if size_store.get_string(i) == size_str:
+                selected_index = i
+                break
+        self.size_dropdown.handler_block(self.size_dropdown_handler)
+        self.size_dropdown.set_selected(selected_index)
+        self.size_dropdown.handler_unblock(self.size_dropdown_handler)
+
 
     def exec_js(self, script):
         self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
