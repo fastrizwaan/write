@@ -514,9 +514,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.on_redo_clicked(None)
                 return True
             elif keyval == Gdk.KEY_X:
-                self.is_strikethrough = not self.is_strikethrough
-                self.strikethrough_btn.set_active(self.is_strikethrough)
-                self.exec_js("document.execCommand('strikeThrough')")
+                self.on_strikethrough_toggled(self.strikethrough_btn)
                 return True
             elif keyval == Gdk.KEY_L:
                 self.is_bullet_list = not self.is_bullet_list
@@ -704,9 +702,52 @@ class EditorWindow(Adw.ApplicationWindow):
         self.exec_js_with_result("document.queryCommandState('underline')", get_underline_state)
 
     def on_strikethrough_toggled(self, btn):
-        self.is_strikethrough = btn.get_active()
-        self.exec_js("document.execCommand('strikeThrough')")
-        self.webview.grab_focus()
+        if hasattr(self, '_processing_strikethrough_toggle') and self._processing_strikethrough_toggle:
+            return
+            
+        self._processing_strikethrough_toggle = True
+        
+        def get_strikethrough_state(webview, result, user_data):
+            try:
+                if result is not None and hasattr(result, 'get_js_value'):
+                    strikethrough_state = webview.run_javascript_finish(result).get_js_value().to_boolean()
+                else:
+                    # Fallback when we can't get JS result
+                    strikethrough_state = not self.is_strikethrough if hasattr(self, 'is_strikethrough') else btn.get_active()
+                    
+                self.is_strikethrough = strikethrough_state
+                self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
+                self.strikethrough_btn.set_active(self.is_strikethrough)
+                self.strikethrough_btn.handler_unblock_by_func(self.on_strikethrough_toggled)
+                print(f"Final strikethrough state: {self.is_strikethrough}")
+                self.webview.grab_focus()
+            except Exception as e:
+                print(f"Error in strikethrough state callback: {e}")
+                # Fallback on error
+                self.is_strikethrough = not self.is_strikethrough if hasattr(self, 'is_strikethrough') else btn.get_active()
+                self.strikethrough_btn.handler_block_by_func(self.on_strikethrough_toggled)
+                self.strikethrough_btn.set_active(self.is_strikethrough)
+                self.strikethrough_btn.handler_unblock_by_func(self.on_strikethrough_toggled)
+            finally:
+                self._processing_strikethrough_toggle = False
+        
+        self.exec_js("document.execCommand('strikethrough')")
+        self.exec_js_with_result("document.queryCommandState('strikethrough')", get_strikethrough_state)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def on_bullet_list_toggled(self, btn):
         self.is_bullet_list = btn.get_active()
