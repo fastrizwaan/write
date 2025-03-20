@@ -517,30 +517,20 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.on_strikethrough_toggled(self.strikethrough_btn)
                 return True
             elif keyval == Gdk.KEY_L:
-                self.is_bullet_list = not self.is_bullet_list
-                self.bullet_btn.set_active(self.is_bullet_list)
-                self.exec_js("document.execCommand('insertUnorderedList')")
+                self.on_bullet_list_toggled(self.bullet_btn)
                 return True
             elif keyval == Gdk.KEY_asterisk:
-                self.is_bullet_list = not self.is_bullet_list
-                self.bullet_btn.set_active(self.is_bullet_list)
-                self.exec_js("document.execCommand('insertUnorderedList')")
+                self.on_bullet_list_toggled(self.bullet_btn)
                 return True
             elif keyval == Gdk.KEY_ampersand:
-                self.is_number_list = not self.is_number_list
-                self.number_btn.set_active(self.is_number_list)
-                self.exec_js("document.execCommand('insertOrderedList')")
+                self.on_number_list_toggled(self.number_btn)
                 return True
         elif not ctrl:
             if keyval == Gdk.KEY_F12 and not shift:
-                self.is_number_list = not self.is_number_list
-                self.number_btn.set_active(self.is_number_list)
-                self.exec_js("document.execCommand('insertOrderedList')")
+                self.on_number_list_toggled(self.number_btn)
                 return True
             elif keyval == Gdk.KEY_F12 and shift:
-                self.is_bullet_list = not self.is_bullet_list
-                self.bullet_btn.set_active(self.is_bullet_list)
-                self.exec_js("document.execCommand('insertUnorderedList')")
+                self.on_bullet_list_toggled(self.bullet_btn)
                 return True
         return False
 
@@ -736,28 +726,101 @@ class EditorWindow(Adw.ApplicationWindow):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     def on_bullet_list_toggled(self, btn):
         self.is_bullet_list = btn.get_active()
         self.exec_js("document.execCommand('insertUnorderedList')")
+        self.bullet_btn.set_active(self.is_bullet_list)
         self.webview.grab_focus()
-
+        
     def on_number_list_toggled(self, btn):
+        print(f"self.is_number_list = {self.is_number_list}. before")
         self.is_number_list = btn.get_active()
         self.exec_js("document.execCommand('insertOrderedList')")
+        print(f"self.is_number_list = {self.is_number_list}. After")
+        self.number_btn.set_active(self.is_number_list)
         self.webview.grab_focus()
+        
+    def on_bullet_list_toggled(self, btn):
+        if hasattr(self, '_processing_bullet_toggle') and self._processing_bullet_toggle:
+            return
+        
+        self._processing_bullet_toggle = True
+        
+        def get_bullet_state(webview, result, user_data):
+            try:
+                if result is not None:
+                    bullet_state = webview.evaluate_javascript_finish(result).to_boolean()
+                else:
+                    # Fallback when we can't get JS result
+                    bullet_state = not self.is_bullet_list if hasattr(self, 'is_bullet_list') else btn.get_active()
+                    
+                self.is_bullet_list = bullet_state
+                self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
+                self.bullet_btn.set_active(self.is_bullet_list)
+                self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
+                
+                # If bullet list is active, deactivate numbered list
+                if self.is_bullet_list:
+                    self.is_number_list = False
+                    self.number_btn.handler_block_by_func(self.on_number_list_toggled)
+                    self.number_btn.set_active(False)
+                    self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
+                    
+                print(f"Final bullet list state: {self.is_bullet_list}, Numbered list state: {self.is_number_list}")
+                self.webview.grab_focus()
+            except Exception as e:
+                print(f"Error in bullet list state callback: {e}")
+                # Fallback on error
+                self.is_bullet_list = not self.is_bullet_list if hasattr(self, 'is_bullet_list') else btn.get_active()
+                self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
+                self.bullet_btn.set_active(self.is_bullet_list)
+                self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
+            finally:
+                self._processing_bullet_toggle = False
+        
+        self.exec_js("document.execCommand('insertUnorderedList')")
+        self.exec_js_with_result("document.queryCommandState('insertUnorderedList')", get_bullet_state)
+
+    def on_number_list_toggled(self, btn):
+        if hasattr(self, '_processing_number_toggle') and self._processing_number_toggle:
+            return
+        
+        self._processing_number_toggle = True
+        
+        def get_number_state(webview, result, user_data):
+            try:
+                if result is not None:
+                    number_state = webview.evaluate_javascript_finish(result).to_boolean()
+                else:
+                    # Fallback when we can't get JS result
+                    number_state = not self.is_number_list if hasattr(self, 'is_number_list') else btn.get_active()
+                    
+                self.is_number_list = number_state
+                self.number_btn.handler_block_by_func(self.on_number_list_toggled)
+                self.number_btn.set_active(self.is_number_list)
+                self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
+                
+                # If numbered list is active, deactivate bullet list
+                if self.is_number_list:
+                    self.is_bullet_list = False
+                    self.bullet_btn.handler_block_by_func(self.on_bullet_list_toggled)
+                    self.bullet_btn.set_active(False)
+                    self.bullet_btn.handler_unblock_by_func(self.on_bullet_list_toggled)
+                    
+                print(f"Final number list state: {self.is_number_list}, Bullet list state: {self.is_bullet_list}")
+                self.webview.grab_focus()
+            except Exception as e:
+                print(f"Error in number list state callback: {e}")
+                # Fallback on error
+                self.is_number_list = not self.is_number_list if hasattr(self, 'is_number_list') else btn.get_active()
+                self.number_btn.handler_block_by_func(self.on_number_list_toggled)
+                self.number_btn.set_active(self.is_number_list)
+                self.number_btn.handler_unblock_by_func(self.on_number_list_toggled)
+            finally:
+                self._processing_number_toggle = False
+        
+        self.exec_js("document.execCommand('insertOrderedList')")
+        self.exec_js_with_result("document.queryCommandState('insertOrderedList')", get_number_state)
 
     def on_indent_more(self, btn):
         self.exec_js("document.execCommand('indent')")
