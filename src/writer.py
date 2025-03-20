@@ -487,24 +487,16 @@ class EditorWindow(Adw.ApplicationWindow):
                 self.on_redo_clicked(None)
                 return True
             elif keyval == Gdk.KEY_l:
-                self.is_align_left = not self.is_align_left
-                self.align_left_btn.set_active(self.is_align_left)
-                self.exec_js("document.execCommand('justifyLeft')")
+                self.on_align_left(self.align_left_btn)
                 return True
             elif keyval == Gdk.KEY_e:
-                self.is_align_center = not self.is_align_center
-                self.align_center_btn.set_active(self.is_align_center)
-                self.exec_js("document.execCommand('justifyCenter')")
+                self.on_align_center(self.align_center_btn)
                 return True
             elif keyval == Gdk.KEY_r:
-                self.is_align_right = not self.is_align_right
-                self.align_right_btn.set_active(self.is_align_right)
-                self.exec_js("document.execCommand('justifyRight')")
+                self.on_align_right(self.align_right_btn)
                 return True
             elif keyval == Gdk.KEY_j:
-                self.is_align_justify = not self.is_align_justify
-                self.align_justify_btn.set_active(self.is_align_justify)
-                self.exec_js("document.execCommand('justifyFull')")
+                self.on_align_justify(self.align_justify_btn)
                 return True
             elif keyval in (Gdk.KEY_M, Gdk.KEY_m):
                 self.on_indent_more(None)
@@ -869,6 +861,210 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_align_justify = btn.get_active()
         self.exec_js("document.execCommand('justifyFull')")
         self.webview.grab_focus()
+
+    def on_align_left(self, btn):
+        if hasattr(self, '_processing_align_left') and self._processing_align_left:
+            return
+        
+        self._processing_align_left = True
+        
+        def get_align_state(webview, result, user_data):
+            try:
+                if result is not None:
+                    align_state = webview.evaluate_javascript_finish(result).to_boolean()
+                else:
+                    # Fallback when we can't get JS result
+                    align_state = not self.is_align_left if hasattr(self, 'is_align_left') else btn.get_active()
+                    
+                self.is_align_left = align_state
+                self.align_left_btn.handler_block_by_func(self.on_align_left)
+                self.align_left_btn.set_active(self.is_align_left)
+                self.align_left_btn.handler_unblock_by_func(self.on_align_left)
+                
+                # If left align is active, deactivate others
+                if self.is_align_left:
+                    self.is_align_center = False
+                    self.align_center_btn.handler_block_by_func(self.on_align_center)
+                    self.align_center_btn.set_active(False)
+                    self.align_center_btn.handler_unblock_by_func(self.on_align_center)
+                    
+                    self.is_align_right = False
+                    self.align_right_btn.handler_block_by_func(self.on_align_right)
+                    self.align_right_btn.set_active(False)
+                    self.align_right_btn.handler_unblock_by_func(self.on_align_right)
+                    
+                    self.is_align_justify = False
+                    self.align_justify_btn.handler_block_by_func(self.on_align_justify)
+                    self.align_justify_btn.set_active(False)
+                    self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
+                    
+                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
+                self.webview.grab_focus()
+            except Exception as e:
+                print(f"Error in align left state callback: {e}")
+                # Fallback on error
+                self.is_align_left = not self.is_align_left if hasattr(self, 'is_align_left') else btn.get_active()
+                self.align_left_btn.handler_block_by_func(self.on_align_left)
+                self.align_left_btn.set_active(self.is_align_left)
+                self.align_left_btn.handler_unblock_by_func(self.on_align_left)
+            finally:
+                self._processing_align_left = False
+        
+        self.exec_js("document.execCommand('justifyLeft')")
+        self.exec_js_with_result("document.queryCommandState('justifyLeft')", get_align_state)
+
+    def on_align_center(self, btn):
+        if hasattr(self, '_processing_align_center') and self._processing_align_center:
+            return
+        
+        self._processing_align_center = True
+        
+        def get_align_state(webview, result, user_data):
+            try:
+                if result is not None:
+                    align_state = webview.evaluate_javascript_finish(result).to_boolean()
+                else:
+                    # Fallback when we can't get JS result
+                    align_state = not self.is_align_center if hasattr(self, 'is_align_center') else btn.get_active()
+                    
+                self.is_align_center = align_state
+                self.align_center_btn.handler_block_by_func(self.on_align_center)
+                self.align_center_btn.set_active(self.is_align_center)
+                self.align_center_btn.handler_unblock_by_func(self.on_align_center)
+                
+                # If center align is active, deactivate others
+                if self.is_align_center:
+                    self.is_align_left = False
+                    self.align_left_btn.handler_block_by_func(self.on_align_left)
+                    self.align_left_btn.set_active(False)
+                    self.align_left_btn.handler_unblock_by_func(self.on_align_left)
+                    
+                    self.is_align_right = False
+                    self.align_right_btn.handler_block_by_func(self.on_align_right)
+                    self.align_right_btn.set_active(False)
+                    self.align_right_btn.handler_unblock_by_func(self.on_align_right)
+                    
+                    self.is_align_justify = False
+                    self.align_justify_btn.handler_block_by_func(self.on_align_justify)
+                    self.align_justify_btn.set_active(False)
+                    self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
+                    
+                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
+                self.webview.grab_focus()
+            except Exception as e:
+                print(f"Error in align center state callback: {e}")
+                # Fallback on error
+                self.is_align_center = not self.is_align_center if hasattr(self, 'is_align_center') else btn.get_active()
+                self.align_center_btn.handler_block_by_func(self.on_align_center)
+                self.align_center_btn.set_active(self.is_align_center)
+                self.align_center_btn.handler_unblock_by_func(self.on_align_center)
+            finally:
+                self._processing_align_center = False
+        
+        self.exec_js("document.execCommand('justifyCenter')")
+        self.exec_js_with_result("document.queryCommandState('justifyCenter')", get_align_state)
+
+    def on_align_right(self, btn):
+        if hasattr(self, '_processing_align_right') and self._processing_align_right:
+            return
+        
+        self._processing_align_right = True
+        
+        def get_align_state(webview, result, user_data):
+            try:
+                if result is not None:
+                    align_state = webview.evaluate_javascript_finish(result).to_boolean()
+                else:
+                    # Fallback when we can't get JS result
+                    align_state = not self.is_align_right if hasattr(self, 'is_align_right') else btn.get_active()
+                    
+                self.is_align_right = align_state
+                self.align_right_btn.handler_block_by_func(self.on_align_right)
+                self.align_right_btn.set_active(self.is_align_right)
+                self.align_right_btn.handler_unblock_by_func(self.on_align_right)
+                
+                # If right align is active, deactivate others
+                if self.is_align_right:
+                    self.is_align_left = False
+                    self.align_left_btn.handler_block_by_func(self.on_align_left)
+                    self.align_left_btn.set_active(False)
+                    self.align_left_btn.handler_unblock_by_func(self.on_align_left)
+                    
+                    self.is_align_center = False
+                    self.align_center_btn.handler_block_by_func(self.on_align_center)
+                    self.align_center_btn.set_active(False)
+                    self.align_center_btn.handler_unblock_by_func(self.on_align_center)
+                    
+                    self.is_align_justify = False
+                    self.align_justify_btn.handler_block_by_func(self.on_align_justify)
+                    self.align_justify_btn.set_active(False)
+                    self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
+                    
+                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
+                self.webview.grab_focus()
+            except Exception as e:
+                print(f"Error in align right state callback: {e}")
+                # Fallback on error
+                self.is_align_right = not self.is_align_right if hasattr(self, 'is_align_right') else btn.get_active()
+                self.align_right_btn.handler_block_by_func(self.on_align_right)
+                self.align_right_btn.set_active(self.is_align_right)
+                self.align_right_btn.handler_unblock_by_func(self.on_align_right)
+            finally:
+                self._processing_align_right = False
+        
+        self.exec_js("document.execCommand('justifyRight')")
+        self.exec_js_with_result("document.queryCommandState('justifyRight')", get_align_state)
+
+    def on_align_justify(self, btn):
+        if hasattr(self, '_processing_align_justify') and self._processing_align_justify:
+            return
+        
+        self._processing_align_justify = True
+        
+        def get_align_state(webview, result, user_data):
+            try:
+                if result is not None:
+                    align_state = webview.evaluate_javascript_finish(result).to_boolean()
+                else:
+                    # Fallback when we can't get JS result
+                    align_state = not self.is_align_justify if hasattr(self, 'is_align_justify') else btn.get_active()
+                    
+                self.is_align_justify = align_state
+                self.align_justify_btn.handler_block_by_func(self.on_align_justify)
+                self.align_justify_btn.set_active(self.is_align_justify)
+                self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
+                
+                # If justify align is active, deactivate others
+                if self.is_align_justify:
+                    self.is_align_left = False
+                    self.align_left_btn.handler_block_by_func(self.on_align_left)
+                    self.align_left_btn.set_active(False)
+                    self.align_left_btn.handler_unblock_by_func(self.on_align_left)
+                    
+                    self.is_align_center = False
+                    self.align_center_btn.handler_block_by_func(self.on_align_center)
+                    self.align_center_btn.set_active(False)
+                    self.align_center_btn.handler_unblock_by_func(self.on_align_center)
+                    
+                    self.is_align_right = False
+                    self.align_right_btn.handler_block_by_func(self.on_align_right)
+                    self.align_right_btn.set_active(False)
+                    self.align_right_btn.handler_unblock_by_func(self.on_align_right)
+                    
+                print(f"Align states - Left: {self.is_align_left}, Center: {self.is_align_center}, Right: {self.is_align_right}, Justify: {self.is_align_justify}")
+                self.webview.grab_focus()
+            except Exception as e:
+                print(f"Error in align justify state callback: {e}")
+                # Fallback on error
+                self.is_align_justify = not self.is_align_justify if hasattr(self, 'is_align_justify') else btn.get_active()
+                self.align_justify_btn.handler_block_by_func(self.on_align_justify)
+                self.align_justify_btn.set_active(self.is_align_justify)
+                self.align_justify_btn.handler_unblock_by_func(self.on_align_justify)
+            finally:
+                self._processing_align_justify = False
+        
+        self.exec_js("document.execCommand('justifyFull')")
+        self.exec_js_with_result("document.queryCommandState('justifyFull')", get_align_state)
 
     def check_save_before_new(self):
         if self.is_modified:
