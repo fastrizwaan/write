@@ -298,22 +298,31 @@ class EditorWindow(Adw.ApplicationWindow):
                     document.addEventListener('cut', notifyChange);
 
                     const notifySelectionChange = debounce(function() {
-                        const state = {
-                            bold: document.queryCommandState('bold'),
-                            italic: document.queryCommandState('italic'),
-                            underline: document.queryCommandState('underline'),
-                            strikethrough: document.queryCommandState('strikethrough'),
-                            formatBlock: document.queryCommandValue('formatBlock') || 'p',
-                            fontName: document.queryCommandValue('fontName') || 'Serif',
-                            fontSize: document.queryCommandValue('fontSize') || '3',
-                            insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-                            insertOrderedList: document.queryCommandState('insertOrderedList'),
-                            justifyLeft: document.queryCommandState('justifyLeft'),
-                            justifyCenter: document.queryCommandState('justifyCenter'),
-                            justifyRight: document.queryCommandState('justifyRight'),
-                            justifyFull: document.queryCommandState('justifyFull')
-                        };
-                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                        const sel = window.getSelection();
+                        if (sel.rangeCount > 0) {
+                            const range = sel.getRangeAt(0);
+                            let element = range.startContainer;
+                            if (element.nodeType === Node.TEXT_NODE) {
+                                element = element.parentElement;
+                            }
+                            const style = window.getComputedStyle(element);
+                            const state = {
+                                bold: document.queryCommandState('bold'),
+                                italic: document.queryCommandState('italic'),
+                                underline: document.queryCommandState('underline'),
+                                strikethrough: document.queryCommandState('strikethrough'),
+                                formatBlock: document.queryCommandValue('formatBlock') || 'p',
+                                fontName: style.fontFamily.split(',')[0].replace(/['"]/g, ''),
+                                fontSize: style.fontSize, // Returns e.g., "16px"
+                                insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+                                insertOrderedList: document.queryCommandState('insertOrderedList'),
+                                justifyLeft: document.queryCommandState('justifyLeft'),
+                                justifyCenter: document.queryCommandState('justifyCenter'),
+                                justifyRight: document.queryCommandState('justifyRight'),
+                                justifyFull: document.queryCommandState('justifyFull')
+                            };
+                            window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                        }
                     }, 100);
                     document.addEventListener('selectionchange', notifySelectionChange);
                     notifySelectionChange(); // Initial state
@@ -392,21 +401,25 @@ class EditorWindow(Adw.ApplicationWindow):
             self.font_dropdown.handler_unblock(self.font_dropdown_handler)
 
             # Font size detection (convert px to pt)
-            detected_size_px = float(state.get('fontSize', '11'))
-            # Convert px to pt (approx: 1pt = 1.333px)
-            detected_size_pt = str(round(detected_size_px / 1.333))
+            font_size_str = state.get('fontSize', '11pt')
+            if font_size_str.endswith('px'):
+                font_size_px = float(font_size_str[:-2])
+                font_size_pt = font_size_px / 1.333  # Approximate: 1pt ≈ 1.333px
+            elif font_size_str.endswith('pt'):
+                font_size_pt = float(font_size_str[:-2])
+            else:
+                font_size_pt = 11  # Default
+
             size_store = self.size_dropdown.get_model()
-            selected_size_index = 6  # Default to 11pt
-            for i in range(size_store.get_n_items()):
-                if size_store.get_string(i) == detected_size_pt:
-                    selected_size_index = i
-                    self.current_font_size = detected_size_pt
-                    break
+            available_sizes = [float(size_store.get_string(i)) for i in range(size_store.get_n_items())]
+            selected_size_index = min(range(len(available_sizes)), 
+                                      key=lambda i: abs(available_sizes[i] - font_size_pt))
+            self.current_font_size = size_store.get_string(selected_size_index)
             self.size_dropdown.handler_block(self.size_dropdown_handler)
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
         else:
-            # When called without state, just update dropdowns with current values
+            # When called without state, update dropdowns with current values
             font_store = self.font_dropdown.get_model()
             selected_font_index = 0
             for i in range(font_store.get_n_items()):
@@ -426,7 +439,6 @@ class EditorWindow(Adw.ApplicationWindow):
             self.size_dropdown.handler_block(self.size_dropdown_handler)
             self.size_dropdown.set_selected(selected_size_index)
             self.size_dropdown.handler_unblock(self.size_dropdown_handler)
-
 
     def exec_js(self, script):
         self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
@@ -953,56 +965,56 @@ class EditorWindow(Adw.ApplicationWindow):
                 let sel = window.getSelection();
                 if (!sel.rangeCount) return;
                 let range = sel.getRangeAt(0);
+
                 if (range.collapsed) {{
-                    // No selection, set styles for new text
-                    let span = document.createElement('span');
-                    span.style.fontFamily = currentFont;
-                    span.style.fontSize = currentFontSize + 'pt';
-                    span.innerHTML = '\\u200B'; // Zero-width space to hold cursor
-                    range.insertNode(span);
-                    range.setStart(span.firstChild, 1);
-                    range.setEnd(span.firstChild, 1);
+                    let node = range.startContainer;
+                    let parent = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+                    
+                    if (parent.tagName === 'SPAN' && 
+                        (parent.style.fontFamily || parent.style.fontSize) && 
+                        Object.keys(parent.style).length <= 2 && 
+                        range.startOffset === (node.nodeType === Node.TEXT_NODE ? node.length : parent.childNodes.length)) {{
+                        let newSpan = document.createElement('span');
+                        newSpan.style.fontFamily = currentFont;
+                        newSpan.style.fontSize = currentFontSize + 'pt';
+                        newSpan.innerHTML = '\\u200B';
+                        parent.parentNode.insertBefore(newSpan, parent.nextSibling);
+                        range.setStart(newSpan.firstChild, 1);
+                        range.setEnd(newSpan.firstChild, 1);
+                    }} else if (parent.tagName === 'SPAN' && 
+                               (parent.style.fontFamily || parent.style.fontSize) && 
+                               Object.keys(parent.style).length <= 2) {{
+                        let newSpan = document.createElement('span');
+                        newSpan.style.fontFamily = currentFont;
+                        newSpan.style.fontSize = currentFontSize + 'pt';
+                        newSpan.innerHTML = '\\u200B';
+                        range.insertNode(newSpan);
+                        range.setStart(newSpan.firstChild, 1);
+                        range.setEnd(newSpan.firstChild, 1);
+                    }} else {{
+                        let span = document.createElement('span');
+                        span.style.fontFamily = currentFont;
+                        span.style.fontSize = currentFontSize + 'pt';
+                        span.innerHTML = '\\u200B';
+                        range.insertNode(span);
+                        range.setStart(span.firstChild, 1);
+                        range.setEnd(span.firstChild, 1);
+                    }}
                     sel.removeAllRanges();
                     sel.addRange(range);
                 }} else {{
-                    // Selection exists, apply to selected text
-                    document.execCommand('fontName', false, currentFont);
+                    let selectedText = range.toString();
+                    range.deleteContents();
                     let wrapper = document.createElement('span');
+                    wrapper.style.fontFamily = currentFont;
                     wrapper.style.fontSize = currentFontSize + 'pt';
-                    try {{
-                        range.surroundContents(wrapper);
-                    }} catch (e) {{
-                        console.log("Cannot surround range: " + e);
-                        // Fallback for complex selections
-                        let nodes = getTextNodesInRange(range);
-                        nodes.forEach(node => {{
-                            let span = document.createElement('span');
-                            span.style.fontSize = currentFontSize + 'pt';
-                            node.parentNode.insertBefore(span, node);
-                            span.appendChild(node);
-                        }});
-                    }}
-                }}
-
-                // Helper function to get text nodes within the selection
-                function getTextNodesInRange(range) {{
-                    let walker = document.createTreeWalker(
-                        range.commonAncestorContainer,
-                        NodeFilter.SHOW_TEXT,
-                        {{
-                            acceptNode: function(node) {{
-                                if (range.intersectsNode(node)) {{
-                                    return NodeFilter.FILTER_ACCEPT;
-                                }}
-                            }}
-                        }}
-                    );
-                    let nodes = [];
-                    let node;
-                    while (node = walker.nextNode()) {{
-                        nodes.push(node);
-                    }}
-                    return nodes;
+                    wrapper.textContent = selectedText;
+                    range.insertNode(wrapper);
+                    
+                    sel.removeAllRanges();
+                    range.setStart(wrapper.firstChild, 0);
+                    range.setEnd(wrapper.firstChild, selectedText.length);
+                    sel.addRange(range);
                 }}
             }})();
         """
@@ -1269,6 +1281,7 @@ class EditorWindow(Adw.ApplicationWindow):
     def clear_ignore_changes(self):
         self.ignore_changes = False
         return False
+
 
 if __name__ == "__main__":
     app = Writer()
