@@ -187,22 +187,12 @@ class EditorWindow(Adw.ApplicationWindow):
         self.font_dropdown.add_css_class("flat")
         text_style_group.append(self.font_dropdown)
 
-        # Size dropdown - using WebKit-compatible size indices mapped to pixels
-        self.size_map = {
-            "6": "1",   # xx-small
-            "8": "1",
-            "10": "2",  # small
-            "12": "3",  # medium
-            "14": "3",
-            "16": "4",  # large
-            "18": "4",
-            "24": "5",  # x-large
-            "36": "6"   # xx-large
-            # Note: WebKit uses 1-7 scale, 7 would be xxx-large
-        }
-        size_store = Gtk.StringList(strings=list(self.size_map.keys()))
+        # Size dropdown - using point sizes from 6pt to 96pt
+        self.size_range = [str(size) for size in [6, 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72, 96]]
+        size_range = [str(i) for i in range(6, 97)]  # 6 to 96 inclusive
+        size_store = Gtk.StringList(strings=size_range)
         self.size_dropdown = Gtk.DropDown(model=size_store)
-        self.size_dropdown.set_selected(3)  # Default to 12
+        self.size_dropdown.set_selected(6)  # Default to 12pt (index 6 is 12pt: 6,7,8,9,10,11,12)
         self.size_dropdown_handler = self.size_dropdown.connect("notify::selected", self.on_font_size_changed)
         self.size_dropdown.add_css_class("flat")
         text_style_group.append(self.size_dropdown)
@@ -416,8 +406,7 @@ class EditorWindow(Adw.ApplicationWindow):
             # Font size detection
             font_size_str = state.get('fontSize', '12pt')
             if font_size_str.endswith('px'):
-                font_size_px = float(font_size_str[:-2])
-                font_size_pt = str(int(font_size_px / 1.333))  # Approximate conversion
+                font_size_pt = str(int(float(font_size_str[:-2]) / 1.333))  # Convert px to pt
             elif font_size_str.endswith('pt'):
                 font_size_pt = font_size_str[:-2]
             else:
@@ -425,7 +414,7 @@ class EditorWindow(Adw.ApplicationWindow):
 
             size_store = self.size_dropdown.get_model()
             available_sizes = [size_store.get_string(i) for i in range(size_store.get_n_items())]
-            selected_size_index = 3  # Default to 12
+            selected_size_index = 6  # Default to 12pt
             if font_size_pt in available_sizes:
                 selected_size_index = available_sizes.index(font_size_pt)
             self.current_font_size = available_sizes[selected_size_index]
@@ -939,14 +928,50 @@ class EditorWindow(Adw.ApplicationWindow):
             self.update_formatting_ui()
 
     def on_font_size_changed(self, dropdown, *args):
-        if item := dropdown.get_selected_item():
-            size_key = item.get_string()
-            webkit_size = self.size_map[size_key]
-            self.current_font_size = size_key
-            script = f"document.execCommand('fontSize', false, '{webkit_size}')"
-            self.exec_js(script)
-            self.update_formatting_ui()
-
+            if item := dropdown.get_selected_item():
+                size_pt = item.get_string()
+                self.current_font_size = size_pt
+                script = f"""
+                (function() {{
+                    const selection = window.getSelection();
+                    if (selection.rangeCount > 0) {{
+                        const range = selection.getRangeAt(0);
+                        // Map pt size to closest WebKit size (1-7) for execCommand
+                        let webkitSize;
+                        if ({size_pt} <= 9) webkitSize = '1';
+                        else if ({size_pt} <= 11) webkitSize = '2';
+                        else if ({size_pt} <= 14) webkitSize = '3';
+                        else if ({size_pt} <= 18) webkitSize = '4';
+                        else if ({size_pt} <= 24) webkitSize = '5';
+                        else if ({size_pt} <= 36) webkitSize = '6';
+                        else webkitSize = '7';
+                        
+                        // Apply the base size with execCommand
+                        document.execCommand('fontSize', false, webkitSize);
+                        
+                        // Fine-tune with inline style
+                        const fonts = document.querySelectorAll('font[size="' + webkitSize + '"]');
+                        fonts.forEach(font => {{
+                            if (!font.style.fontSize) {{  // Only if not already set
+                                font.style.fontSize = '{size_pt}pt';
+                            }}
+                        }});
+                        
+                        // Maintain selection for cursor-only case
+                        if (range.collapsed) {{
+                            const font = document.createElement('font');
+                            font.setAttribute('size', webkitSize);
+                            font.style.fontSize = '{size_pt}pt';
+                            range.insertNode(font);
+                            range.selectNodeContents(font);
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        }}
+                    }}
+                }})();
+                """
+                self.exec_js(script)
+                self.update_formatting_ui()
     def on_align_left(self, btn):
         if hasattr(self, '_processing_align_left') and self._processing_align_left:
             return
