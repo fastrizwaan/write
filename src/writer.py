@@ -51,14 +51,14 @@ class EditorWindow(Adw.ApplicationWindow):
         # CSS Provider
         self.css_provider = Gtk.CssProvider()
         self.css_provider.load_from_data(b"""
-            .toolbar-container { padding: 6px; background-color: rgba(127, 127, 127, 0.05); }
+            .toolbar-container { padding: 6px; background-color: rgba(127, 127, 127, 0.2); }
             .flat { background: none; }
             .flat:hover, .flat:checked { background: rgba(127, 127, 127, 0.25); }
             colorbutton.flat, colorbutton.flat button { background: none; }
             colorbutton.flat:hover, colorbutton.flat button:hover { background: rgba(127, 127, 127, 0.25); }
             dropdown.flat, dropdown.flat button { background: none; border-radius: 5px; }
             dropdown.flat:hover { background: rgba(127, 127, 127, 0.25); }
-            .flat-header { background: rgba(127, 127, 127, 0.05); border: none; box-shadow: none; padding: 0; }
+            .flat-header { background: rgba(127, 127, 127, 0.2); border: none; box-shadow: none; padding: 0; }
             .toolbar-group { margin: 0 3px; }
             .color-indicator { min-height: 3px; min-width: 16px; margin-top: 1px; border-radius: 2px; }
             .color-box { padding: 0; }
@@ -81,7 +81,7 @@ class EditorWindow(Adw.ApplicationWindow):
 <head>
     <style>
         body { font-family: serif; font-size: 12pt; margin: 20px; line-height: 1.5; }
-        @media (prefers-color-scheme: dark) { body { background-color: #121212; color: #e0e0e0; } }
+        @media (prefers-color-scheme: dark) { body { background-color: #1e1e1e; color: #e0e0e0; } }
         @media (prefers-color-scheme: light) { body { background-color: #ffffff; color: #000000; } }
     </style>
 </head>
@@ -599,7 +599,7 @@ class EditorWindow(Adw.ApplicationWindow):
     def on_dark_mode_toggled(self, btn):
         if btn.get_active():
             btn.set_icon_name("weather-clear-night")
-            script = "document.body.style.backgroundColor = '#242424'; document.body.style.color = '#e0e0e0';"
+            script = "document.body.style.backgroundColor = '#1e1e1e'; document.body.style.color = '#e0e0e0';"
         else:
             btn.set_icon_name("display-brightness")
             script = "document.body.style.backgroundColor = '#ffffff'; document.body.style.color = '#000000';"
