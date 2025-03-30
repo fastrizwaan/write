@@ -80,12 +80,12 @@ class EditorWindow(Adw.ApplicationWindow):
 <html>
 <head>
     <style>
-        body { font-family: serif; font-size: 12pt; margin: 20px; line-height: 1.5; }
+        body { font-family: serif; font-size: 12pt; margin: 20px; line-height: 1.5;}
         @media (prefers-color-scheme: dark) { body { background-color: #1e1e1e; color: #e0e0e0; } }
         @media (prefers-color-scheme: light) { body { background-color: #ffffff; color: #000000; } }
     </style>
 </head>
-<body><p></p></body>
+<body><p>\u200B</p></body>
 </html>"""
 
         # Main layout
@@ -928,50 +928,67 @@ class EditorWindow(Adw.ApplicationWindow):
             self.update_formatting_ui()
 
     def on_font_size_changed(self, dropdown, *args):
-            if item := dropdown.get_selected_item():
-                size_pt = item.get_string()
-                self.current_font_size = size_pt
-                script = f"""
-                (function() {{
-                    const selection = window.getSelection();
-                    if (selection.rangeCount > 0) {{
-                        const range = selection.getRangeAt(0);
-                        // Map pt size to closest WebKit size (1-7) for execCommand
-                        let webkitSize;
-                        if ({size_pt} <= 9) webkitSize = '1';
-                        else if ({size_pt} <= 11) webkitSize = '2';
-                        else if ({size_pt} <= 14) webkitSize = '3';
-                        else if ({size_pt} <= 18) webkitSize = '4';
-                        else if ({size_pt} <= 24) webkitSize = '5';
-                        else if ({size_pt} <= 36) webkitSize = '6';
-                        else webkitSize = '7';
-                        
-                        // Apply the base size with execCommand
+        if item := dropdown.get_selected_item():
+            size_pt = item.get_string()
+            self.current_font_size = size_pt
+            script = f"""
+            (function() {{
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {{
+                    const range = selection.getRangeAt(0);
+                    // Map pt size to closest WebKit size (1-7) for execCommand
+                    let webkitSize;
+                    if ({size_pt} <= 9) webkitSize = '1';
+                    else if ({size_pt} <= 11) webkitSize = '2';
+                    else if ({size_pt} <= 14) webkitSize = '3';
+                    else if ({size_pt} <= 18) webkitSize = '4';
+                    else if ({size_pt} <= 24) webkitSize = '5';
+                    else if ({size_pt} <= 36) webkitSize = '6';
+                    else webkitSize = '7';
+                    
+                    if (range.collapsed) {{
+                        // For cursor position (apply to future typing)
+                        // Clear any existing formatting
+                        document.execCommand('removeFormat', false, null);
+                        // Apply base size
                         document.execCommand('fontSize', false, webkitSize);
                         
-                        // Fine-tune with inline style
+                        // Ensure cursor is in a font tag with exact size
+                        let font = selection.focusNode.parentElement;
+                        if (!font || font.tagName !== 'FONT' || 
+                            font.getAttribute('size') !== webkitSize || 
+                            font.style.fontSize !== '{size_pt}pt') {{
+                            // Create new font tag if needed
+                            font = document.createElement('font');
+                            font.setAttribute('size', webkitSize);
+                            font.style.fontSize = '{size_pt}pt';
+                            range.insertNode(font);
+                        }}
+                        
+                        // Insert a zero-width space to anchor the style
+                        const zwsp = document.createTextNode('\u200B');
+                        font.appendChild(zwsp);
+                        
+                        // Position cursor after zero-width space
+                        range.setStartAfter(zwsp);
+                        range.setEndAfter(zwsp);
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                    }} else {{
+                        // For selected text
+                        document.execCommand('fontSize', false, webkitSize);
                         const fonts = document.querySelectorAll('font[size="' + webkitSize + '"]');
                         fonts.forEach(font => {{
                             if (!font.style.fontSize) {{  // Only if not already set
                                 font.style.fontSize = '{size_pt}pt';
                             }}
                         }});
-                        
-                        // Maintain selection for cursor-only case
-                        if (range.collapsed) {{
-                            const font = document.createElement('font');
-                            font.setAttribute('size', webkitSize);
-                            font.style.fontSize = '{size_pt}pt';
-                            range.insertNode(font);
-                            range.selectNodeContents(font);
-                            selection.removeAllRanges();
-                            selection.addRange(range);
-                        }}
                     }}
-                }})();
-                """
-                self.exec_js(script)
-                self.update_formatting_ui()
+                }}
+            }})();
+            """
+            self.exec_js(script)
+            self.update_formatting_ui()
     def on_align_left(self, btn):
         if hasattr(self, '_processing_align_left') and self._processing_align_left:
             return
