@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+import base64
+import mimetypes
+
 import os
 import gi, json
 gi.require_version('Gtk', '4.0')
@@ -76,16 +79,134 @@ class EditorWindow(Adw.ApplicationWindow):
         user_content.connect('script-message-received::selectionChanged', self.on_selection_changed)
         self.webview.connect('load-changed', self.on_webview_load)
 
-        self.initial_html = """<!DOCTYPE html>
-<html>
+        self.initial_html = """
+<!DOCTYPE html>
 <head>
     <style>
-        body { font-family: serif; font-size: 12pt; margin: 20px; line-height: 1.5;}
-        @media (prefers-color-scheme: dark) { body { background-color: #1e1e1e; color: #e0e0e0; } }
-        @media (prefers-color-scheme: light) { body { background-color: #ffffff; color: #000000; } }
+        body {
+            font-family: serif;
+            font-size: 12pt;
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+        }
+        @media (prefers-color-scheme: dark) {
+            body { background-color: #1e1e1e; color: #e0e0e0; }
+
+            img.selected { outline-color: #5e97f6; box-shadow: 0 0 10px rgba(94, 151, 246, 0.5); }
+            .context-menu { background-color: #333; border-color: #555; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); }
+            .context-menu-item:hover { background-color: #444; }
+            .context-menu-separator { background-color: #555; }
+            .context-menu-submenu-content { background-color: #333; border-color: #555; }
+        }
+        @media (prefers-color-scheme: light) {
+            body { background-color: #ffffff; color: #000000; }
+            editor { background-color: #ffffff; color: #000000; }
+            img.selected { outline: 2px solid #4285f4; box-shadow: 0 0 10px rgba(66, 133, 244, 0.5); }
+            .context-menu { background-color: white; border-color: #ccc; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+            .context-menu-item:hover { background-color: #f0f0f0; }
+            .context-menu-separator { background-color: #e0e0e0; }
+            .context-menu-submenu-content { background-color: white; border-color: #ccc; }
+        }
+        #editor {
+            outline: none;
+            margin: 0px;
+            padding: 20px;
+            border: none;
+            min-height: 1000px;
+            overflow-y: auto;
+        }
+        /* Remaining styles for images, context menu, etc., remain unchanged */
+        img {
+            display: inline-block;
+            max-width: 50%;
+            cursor: move;
+        }
+        img.selected {
+            outline: 2px solid #4285f4;
+            box-shadow: 0 0 10px rgba(66, 133, 244, 0.5);
+        }
+        img.resizing {
+            outline: 2px dashed #4285f4;
+        }
+        .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: #4285f4;
+            border: 1px solid white;
+            border-radius: 50%;
+            z-index: 999;
+        }
+        .tl-handle { top: -5px; left: -5px; cursor: nw-resize; }
+        .tr-handle { top: -5px; right: -5px; cursor: ne-resize; }
+        .bl-handle { bottom: -5px; left: -5px; cursor: sw-resize; }
+        .br-handle { bottom: -5px; right: -5px; cursor: se-resize; }
+        .context-menu {
+            position: absolute;
+            border: 1px solid;
+            border-radius: 4px;
+            padding: 5px 0;
+            z-index: 1000;
+            min-width: 150px;
+        }
+        .context-menu-item {
+            padding: 8px 15px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .context-menu-separator {
+            height: 1px;
+            margin: 5px 0;
+        }
+        .context-menu-submenu {
+            position: relative;
+        }
+        .context-menu-submenu::after {
+            content: '▶';
+            position: absolute;
+            right: 10px;
+            top: 8px;
+            font-size: 10px;
+        }
+        .context-menu-submenu-content {
+            display: none;
+            position: absolute;
+            left: 100%;
+            top: 0;
+            border: 1px solid;
+            border-radius: 4px;
+            padding: 5px 0;
+            min-width: 150px;
+        }
+        .context-menu-submenu:hover .context-menu-submenu-content {
+            display: block;
+        }
+        img.align-left {
+            float: left;
+            margin: 0 15px 10px 0;
+        }
+        img.align-right {
+            float: right;
+            margin: 0 0 10px 15px;
+        }
+        img.align-center {
+            display: block;
+            margin: 10px auto;
+            float: none;
+        }
+        img.align-none {
+            float: none;
+            margin: 10px 0;
+        }
+        .text-wrap-none {
+            clear: both;
+        }
     </style>
 </head>
-<body><p>\u200B</p></body>
+<body>
+    <div id="editor" contenteditable="true"><p>\u200B</p></div>
+</body>
 </html>"""
 
         # Main layout
@@ -113,6 +234,14 @@ class EditorWindow(Adw.ApplicationWindow):
         list_group.add_css_class("toolbar-group")
         align_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         align_group.add_css_class("toolbar-group")
+
+
+        # In the toolbar groups section (where other buttons are added)
+        image_btn = Gtk.Button(icon_name="insert-image-symbolic")
+        image_btn.add_css_class("flat")
+        image_btn.set_tooltip_text("Insert Image")
+        image_btn.connect("clicked", self.on_insert_image_clicked)
+        text_format_group.append(image_btn)
 
         file_toolbar_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
         file_toolbar_group.add_css_class("toolbar-group-container")
@@ -269,71 +398,533 @@ class EditorWindow(Adw.ApplicationWindow):
         self.is_modified = True
         self.update_title()
 
+    def on_insert_image_clicked(self, btn):
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Insert Image")
+        filter = Gtk.FileFilter()
+        filter.add_mime_type("image/png")
+        filter.add_mime_type("image/jpeg")
+        filter.add_mime_type("image/gif")
+        dialog.set_default_filter(filter)
+        dialog.open(self, None, self.on_insert_image_dialog_response)
+
+    def on_insert_image_dialog_response(self, dialog, result):
+        try:
+            file = dialog.open_finish(result)
+            if file:
+                self.insert_image(file)
+        except GLib.Error as e:
+            self.show_error_dialog(f"Error opening image: {e.message}")
+
+    def insert_image(self, file):
+        try:
+            success, contents, _ = file.load_contents()
+            if success:
+                mime_type, _ = mimetypes.guess_type(file.get_path())
+                if not mime_type:
+                    mime_type = 'image/png'
+                base64_data = base64.b64encode(contents).decode('utf-8')
+                data_url = f"data:{mime_type};base64,{base64_data}"
+                data_url_escaped = data_url.replace("'", "\\'")
+                self.exec_js(
+                    f"document.execCommand('insertHTML', false, "
+                    f"'<img src=\"{data_url_escaped}\" contenteditable=\"false\" draggable=\"true\">');"
+                )
+                self.webview.grab_focus()
+        except GLib.Error as e:
+            self.show_error_dialog(f"Error inserting image: {e.message}")
+
+    def show_error_dialog(self, message):
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading="Error",
+            body=message,
+            modal=True
+        )
+        dialog.add_response("ok", "OK")
+        dialog.present()
+            
     def on_webview_load(self, webview, load_event):
         if load_event == WebKit.LoadEvent.FINISHED:
-            self.webview.evaluate_javascript("""
-                (function() {
-                    let p = document.querySelector('p');
-                    if (p) {
-                        let range = document.createRange();
-                        range.setStart(p, 0);
-                        range.setEnd(p, 0);
-                        let sel = window.getSelection();
-                        sel.removeAllRanges();
-                        sel.addRange(range);
-                    }
-                    function debounce(func, wait) {
-                        let timeout;
-                        return function(...args) {
-                            clearTimeout(timeout);
-                            timeout = setTimeout(() => func(...args), wait);
-                        };
-                    }
-                    let lastContent = document.body.innerHTML;
-                    const notifyChange = debounce(function() {
-                        let currentContent = document.body.innerHTML;
-                        if (currentContent !== lastContent) {
-                            window.webkit.messageHandlers.contentChanged.postMessage('changed');
-                            lastContent = currentContent;
-                        }
-                    }, 250);
-                    document.addEventListener('input', notifyChange);
-                    document.addEventListener('paste', notifyChange);
-                    document.addEventListener('cut', notifyChange);
+            script = """
+            (function() {
+                const editor = document.getElementById('editor');
+                if (!editor) {
+                    console.error('Editor element not found');
+                    return;
+                }
 
-                    const notifySelectionChange = debounce(function() {
-                        const sel = window.getSelection();
-                        if (sel.rangeCount > 0) {
-                            const range = sel.getRangeAt(0);
-                            let element = range.startContainer;
-                            if (element.nodeType === Node.TEXT_NODE) {
-                                element = element.parentElement;
+                // Initialize cursor position
+                let p = editor.querySelector('p');
+                if (p) {
+                    let range = document.createRange();
+                    range.setStart(p, 0);
+                    range.setEnd(p, 0);
+                    let sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                }
+
+                // Image handling variables
+                let selectedImage = null;
+                let resizeHandles = [];
+                let isDragging = false;
+                let isResizing = false;
+                let lastX, lastY;
+                let resizeStartWidth, resizeStartHeight;
+                let currentResizeHandle = null;
+                let contextMenu = null;
+
+                // Create resize handles
+                function createResizeHandles(image) {
+                    removeResizeHandles();
+                    const container = document.createElement('div');
+                    container.style.position = 'absolute';
+                    container.style.left = image.offsetLeft + 'px';
+                    container.style.top = image.offsetTop + 'px';
+                    container.style.width = image.offsetWidth + 'px';
+                    container.style.height = image.offsetHeight + 'px';
+                    container.style.pointerEvents = 'none';
+                    container.className = 'resize-container';
+
+                    const positions = ['tl', 'tr', 'bl', 'br'];
+                    positions.forEach(pos => {
+                        const handle = document.createElement('div');
+                        handle.className = `resize-handle ${pos}-handle`;
+                        handle.style.pointerEvents = 'all';
+                        handle.dataset.position = pos;
+                        
+                        handle.addEventListener('mousedown', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            startResize(e, handle);
+                        });
+                        
+                        container.appendChild(handle);
+                        resizeHandles.push(handle);
+                    });
+
+                    editor.appendChild(container);
+                }
+
+                // Remove resize handles
+                function removeResizeHandles() {
+                    const container = editor.querySelector('.resize-container');
+                    if (container) container.remove();
+                    resizeHandles = [];
+                }
+
+                // Update resize handles position
+                function updateResizeHandles() {
+                    if (!selectedImage) return;
+                    
+                    const container = editor.querySelector('.resize-container');
+                    if (container) {
+                        const rect = selectedImage.getBoundingClientRect();
+                        const editorRect = editor.getBoundingClientRect();
+                        
+                        container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
+                        container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                        container.style.width = selectedImage.offsetWidth + 'px';
+                        container.style.height = selectedImage.offsetHeight + 'px';
+                    }
+                }
+
+                // Start resizing
+                function startResize(e, handle) {
+                    if (!selectedImage) return;
+                    isResizing = true;
+                    currentResizeHandle = handle;
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                    resizeStartWidth = selectedImage.offsetWidth;
+                    resizeStartHeight = selectedImage.offsetHeight;
+                    selectedImage.classList.add('resizing');
+                    
+                    document.addEventListener('mousemove', handleResize);
+                    document.addEventListener('mouseup', stopResize);
+                }
+
+                // Handle resize
+                function handleResize(e) {
+                    if (!isResizing || !selectedImage || !currentResizeHandle) return;
+                    
+                    const deltaX = e.clientX - lastX;
+                    const deltaY = e.clientY - lastY;
+                    const position = currentResizeHandle.dataset.position;
+                    
+                    let newWidth = resizeStartWidth;
+                    let newHeight = resizeStartHeight;
+                    
+                    if (position.includes('r')) newWidth += deltaX;
+                    if (position.includes('l')) newWidth -= deltaX;
+                    if (position.includes('b')) newHeight += deltaY;
+                    if (position.includes('t')) newHeight -= deltaY;
+                    
+                    if (e.shiftKey) {
+                        const aspectRatio = resizeStartWidth / resizeStartHeight;
+                        if ( 
+     
+    Math.abs(deltaX) > Math.abs(deltaY)) {
+                            newHeight = newWidth / aspectRatio;
+                        } else {
+                            newWidth = newHeight * aspectRatio;
+                        }
+                    }
+                    
+                    newWidth = Math.max(20, newWidth);
+                    newHeight = Math.max(20, newHeight);
+                    
+                    selectedImage.style.width = newWidth + 'px';
+                    selectedImage.style.height = newHeight + 'px';
+                    
+                    updateResizeHandles();
+                }
+
+                // Stop resizing
+                function stopResize() {
+                    isResizing = false;
+                    currentResizeHandle = null;
+                    if (selectedImage) selectedImage.classList.remove('resizing');
+                    document.removeEventListener('mousemove', handleResize);
+                    document.removeEventListener('mouseup', stopResize);
+                }
+
+                // Start dragging
+                function startDrag(e, image) {
+                    if (isResizing) return;
+                    isDragging = true;
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                    document.addEventListener('mousemove', handleDrag);
+                    document.addEventListener('mouseup', stopDrag);
+                }
+
+                // Handle drag
+                function handleDrag(e) {
+                    if (!isDragging || !selectedImage) return;
+                    
+                    const temp = document.createElement('span');
+                    temp.style.display = 'inline-block';
+                    temp.style.width = '1px';
+                    temp.style.height = '1px';
+                    
+                    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                    if (range) {
+                        range.insertNode(temp);
+                        
+                        temp.parentNode.insertBefore(selectedImage, temp);
+                        temp.remove();
+                        
+                        updateResizeHandles();
+                    }
+                }
+
+                // Stop dragging
+                function stopDrag() {
+                    isDragging = false;
+                    document.removeEventListener('mousemove', handleDrag);
+                    document.removeEventListener('mouseup', stopDrag);
+                }
+
+                // Select image
+                function selectImage(image) {
+                    if (selectedImage) selectedImage.classList.remove('selected');
+                    selectedImage = image;
+                    selectedImage.classList.add('selected');
+                    createResizeHandles(image);
+                }
+
+                // Deselect image
+                function deselectImage() {
+                    if (selectedImage) {
+                        selectedImage.classList.remove('selected');
+                        selectedImage = null;
+                    }
+                    removeResizeHandles();
+                }
+
+                // Create context menu
+                function createContextMenu(x, y) {
+                    removeContextMenu();
+                    contextMenu = document.createElement('div');
+                    contextMenu.className = 'context-menu';
+                    contextMenu.style.left = x + 'px';
+                    contextMenu.style.top = y + 'px';
+                    
+                    const menuItems = [
+                        { label: 'Resize Image', action: 'resize' },
+                        { label: 'Alignment', submenu: [
+                            { label: 'Left', action: 'align-left' },
+                            { label: 'Center', action: 'align-center' },
+                            { label: 'Right', action: 'align-right' },
+                            { label: 'None', action: 'align-none' }
+                        ]},
+                        { label: 'Text Wrap', submenu: [
+                            { label: 'Around', action: 'wrap-around' },
+                            { label: 'None', action: 'wrap-none' }
+                        ]},
+                        { type: 'separator' },
+                        { label: 'Copy Image', action: 'copy' },
+                        { label: 'Delete Image', action: 'delete' }
+                    ];
+                    
+                    createMenuItems(contextMenu, menuItems);
+                    document.body.appendChild(contextMenu);
+                    setTimeout(() => {
+                        document.addEventListener('click', closeContextMenuOnClickOutside);
+                    }, 0);
+                }
+
+                // Create menu items
+                function createMenuItems(parent, items) {
+                    items.forEach(item => {
+                        if (item.type === 'separator') {
+                            const separator = document.createElement('div');
+                            separator.className = 'context-menu-separator';
+                            parent.appendChild(separator);
+                        } else if (item.submenu) {
+                            const submenuItem = document.createElement('div');
+                            submenuItem.className = 'context-menu-item context-menu-submenu';
+                            submenuItem.textContent = item.label;
+                            
+                            const submenuContent = document.createElement('div');
+                            submenuContent.className = 'context-menu-submenu-content';
+                            createMenuItems(submenuContent, item.submenu);
+                            
+                            submenuItem.appendChild(submenuContent);
+                            parent.appendChild(submenuItem);
+                        } else {
+                            const menuItem = document.createElement('div');
+                            menuItem.className = 'context-menu-item';
+                            menuItem.textContent = item.label;
+                            menuItem.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                handleContextMenuAction(item.action);
+                                removeContextMenu();
+                            });
+                            parent.appendChild(menuItem);
+                        }
+                    });
+                }
+
+                // Handle context menu action
+                function handleContextMenuAction(action) {
+                    if (!selectedImage) return;
+                    switch (action) {
+                        case 'resize':
+                            // Already selected
+                            break;
+                        case 'align-left':
+                            setImageAlignment(selectedImage, 'left');
+                            break;
+                        case 'align-center':
+                            setImageAlignment(selectedImage, 'center');
+                            break;
+                        case 'align-right':
+                            setImageAlignment(selectedImage, 'right');
+                            break;
+                        case 'align-none':
+                            setImageAlignment(selectedImage, 'none');
+                            break;
+                        case 'wrap-around':
+                            setTextWrap(selectedImage, 'around');
+                            break;
+                        case 'wrap-none':
+                            setTextWrap(selectedImage, 'none');
+                            break;
+                        case 'copy':
+                            copyImageToClipboard(selectedImage);
+                            break;
+                        case 'delete':
+                            deleteImage(selectedImage);
+                            break;
+                    }
+                }
+
+                // Set image alignment
+                function setImageAlignment(image, alignment) {
+                    image.classList.remove('align-left', 'align-right', 'align-center', 'align-none');
+                    image.classList.add(`align-${alignment}`);
+                    updateResizeHandles();
+                }
+
+                // Set text wrap
+                function setTextWrap(image, wrap) {
+                    if (wrap === 'none') {
+                        image.style.float = 'none';
+                        const clearDiv = document.createElement('div');
+                        clearDiv.className = 'text-wrap-none';
+                        clearDiv.style.clear = 'both';
+                        if (image.nextSibling) {
+                            image.parentNode.insertBefore(clearDiv, image.nextSibling);
+                        } else {
+                            image.parentNode.appendChild(clearDiv);
+                        }
+                    } else if (wrap === 'around') {
+                        if (!image.classList.contains('align-left') && !image.classList.contains('align-right')) {
+                            setImageAlignment(image, 'left');
+                        }
+                        const nextSibling = image.nextSibling;
+                        if (nextSibling && nextSibling.classList && nextSibling.classList.contains('text-wrap-none')) {
+                            nextSibling.remove();
+                        }
+                    }
+                }
+
+                // Copy image to clipboard
+                function copyImageToClipboard(image) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = image.naturalWidth;
+                    canvas.height = image.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(image, 0, 0);
+                    canvas.toBlob(blob => {
+                        const item = new ClipboardItem({ 'image/png': blob });
+                        navigator.clipboard.write([item]).then(
+                            () => console.log('Image copied to clipboard'),
+                            err => console.error('Error copying image: ', err)
+                        );
+                    });
+                }
+
+                // Delete image
+                function deleteImage(image) {
+                    const nextSibling = image.nextSibling;
+                    if (nextSibling && nextSibling.classList && nextSibling.classList.contains('text-wrap-none')) {
+                        nextSibling.remove();
+                    }
+                    deselectImage();
+                    image.remove();
+                }
+
+                // Remove context menu
+                function removeContextMenu() {
+                    if (contextMenu) {
+                        document.removeEventListener('click', closeContextMenuOnClickOutside);
+                        contextMenu.remove();
+                        contextMenu = null;
+                    }
+                }
+
+                // Close context menu on click outside
+                function closeContextMenuOnClickOutside(e) {
+                    if (contextMenu && !contextMenu.contains(e.target)) {
+                        removeContextMenu();
+                    }
+                }
+
+                // Event listeners
+                editor.addEventListener('click', (e) => {
+                    removeContextMenu();
+                    if (e.target.tagName === 'IMG') {
+                        e.preventDefault();
+                        selectImage(e.target);
+                    } else {
+                        deselectImage();
+                    }
+                });
+
+                editor.addEventListener('contextmenu', (e) => {
+                    if (e.target.tagName === 'IMG') {
+                        e.preventDefault();
+                        selectImage(e.target);
+                        createContextMenu(e.clientX, e.clientY);
+                    }
+                });
+
+                editor.addEventListener('mousedown', (e) => {
+                    if (e.target.tagName === 'IMG' && e.button === 0) {
+                        e.preventDefault();
+                        if (selectedImage !== e.target) {
+                            selectImage(e.target);
+                        }
+                        startDrag(e, e.target);
+                    }
+                });
+
+                // Initialize existing images
+                editor.querySelectorAll('img').forEach(img => {
+                    img.contentEditable = false;
+                    img.draggable = true;
+                });
+
+                // Mutation observer for new images
+                const observer = new MutationObserver(mutations => {
+                    mutations.forEach(mutation => {
+                        mutation.addedNodes.forEach(node => {
+                            if (node.tagName === 'IMG') {
+                                node.contentEditable = false;
+                                node.draggable = true;
                             }
-                            const style = window.getComputedStyle(element);
-                            const state = {
-                                bold: document.queryCommandState('bold'),
-                                italic: document.queryCommandState('italic'),
-                                underline: document.queryCommandState('underline'),
-                                strikethrough: document.queryCommandState('strikethrough'),
-                                formatBlock: document.queryCommandValue('formatBlock') || 'p',
-                                fontName: style.fontFamily.split(',')[0].replace(/['"]/g, ''),
-                                fontSize: style.fontSize, // Returns e.g., "16px"
-                                insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-                                insertOrderedList: document.queryCommandState('insertOrderedList'),
-                                justifyLeft: document.queryCommandState('justifyLeft'),
-                                justifyCenter: document.queryCommandState('justifyCenter'),
-                                justifyRight: document.queryCommandState('justifyRight'),
-                                justifyFull: document.queryCommandState('justifyFull')
-                            };
-                            window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
-                        }
-                    }, 100);
-                    document.addEventListener('selectionchange', notifySelectionChange);
-                    notifySelectionChange(); // Initial state
-                })();
-            """, -1, None, None, None, None, None)
-            GLib.idle_add(self.webview.grab_focus)
+                        });
+                    });
+                });
+                observer.observe(editor, { childList: true, subtree: true });
 
+                // Content change notification
+                function debounce(func, wait) {
+                    let timeout;
+                    return function(...args) {
+                        clearTimeout(timeout);
+                        timeout = setTimeout(() => func(...args), wait);
+                    };
+                }
+
+                let lastContent = editor.innerHTML;
+                const notifyChange = debounce(function() {
+                    let currentContent = editor.innerHTML;
+                    if (currentContent !== lastContent) {
+                        window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                        lastContent = currentContent;
+                    }
+                }, 250);
+
+                editor.addEventListener('input', notifyChange);
+                editor.addEventListener('paste', notifyChange);
+                editor.addEventListener('cut', notifyChange);
+
+                // Selection change notification
+                const notifySelectionChange = debounce(function() {
+                    const sel = window.getSelection();
+                    if (sel.rangeCount > 0) {
+                        const range = sel.getRangeAt(0);
+                        let element = range.startContainer;
+                        if (element.nodeType === Node.TEXT_NODE) {
+                            element = element.parentElement;
+                        }
+                        const style = window.getComputedStyle(element);
+                        const state = {
+                            bold: document.queryCommandState('bold'),
+                            italic: document.queryCommandState('italic'),
+                            underline: document.queryCommandState('underline'),
+                            // Add other states as needed
+                        };
+                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                    }
+                }, 100);
+
+                document.addEventListener('selectionchange', notifySelectionChange);
+                notifySelectionChange();
+
+                // Function to insert and select image
+                window.insertAndSelectImage = function(src) {
+                    document.execCommand('insertHTML', false, '<img src="' + src + '">');
+                    const images = editor.querySelectorAll('img');
+                    const lastImage = images[images.length - 1];
+                    if (lastImage) {
+                        lastImage.contentEditable = false;
+                        lastImage.draggable = true;
+                        selectImage(lastImage);
+                        setImageAlignment(lastImage, 'left');
+                        setTextWrap(lastImage, 'around');
+                    }
+                };
+            })();
+            """
+            self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
+            GLib.idle_add(self.webview.grab_focus)    
+            
     def on_selection_changed(self, user_content, message):
         if message.is_string():
             state_str = message.to_string()
