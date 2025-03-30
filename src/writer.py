@@ -92,7 +92,7 @@ class EditorWindow(Adw.ApplicationWindow):
         }
         @media (prefers-color-scheme: dark) {
             body { background-color: #1e1e1e; color: #e0e0e0; }
-
+            editor { background-color: #1e1e1e; color: #e0e0e0; }
             img.selected { outline-color: #5e97f6; box-shadow: 0 0 10px rgba(94, 151, 246, 0.5); }
             .context-menu { background-color: #333; border-color: #555; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); }
             .context-menu-item:hover { background-color: #444; }
