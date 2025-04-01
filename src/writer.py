@@ -446,485 +446,541 @@ class EditorWindow(Adw.ApplicationWindow):
             
     def on_webview_load(self, webview, load_event):
         if load_event == WebKit.LoadEvent.FINISHED:
-            script = """
-            (function() {
-                const editor = document.getElementById('editor');
-                if (!editor) {
-                    console.error('Editor element not found');
-                    return;
+            # Initialize cursor position
+            self.initialize_cursor_position()
+            
+            # Setup image handling
+            self.setup_image_handling()
+            
+            # Setup content change notification
+            self.setup_content_change_notification()
+            
+            # Setup selection change notification
+            self.setup_selection_change_notification()
+            
+            # Focus the webview after loading
+            GLib.idle_add(self.webview.grab_focus)
+
+    def initialize_cursor_position(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
+
+            // Initialize cursor position
+            let p = editor.querySelector('p');
+            if (p) {
+                let range = document.createRange();
+                range.setStart(p, 0);
+                range.setEnd(p, 0);
+                let sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        })();
+        """
+        self.exec_js(script)
+
+    def setup_image_handling(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
+
+            // Image handling variables
+            let selectedImage = null;
+            let resizeHandles = [];
+            let isDragging = false;
+            let isResizing = false;
+            let lastX, lastY;
+            let resizeStartWidth, resizeStartHeight;
+            let currentResizeHandle = null;
+            let contextMenu = null;
+
+            // Create resize handles
+            function createResizeHandles(image) {
+                removeResizeHandles();
+                const container = document.createElement('div');
+                container.style.position = 'absolute';
+                container.style.left = image.offsetLeft + 'px';
+                container.style.top = image.offsetTop + 'px';
+                container.style.width = image.offsetWidth + 'px';
+                container.style.height = image.offsetHeight + 'px';
+                container.style.pointerEvents = 'none';
+                container.className = 'resize-container';
+
+                const positions = ['tl', 'tr', 'bl', 'br'];
+                positions.forEach(pos => {
+                    const handle = document.createElement('div');
+                    handle.className = `resize-handle ${pos}-handle`;
+                    handle.style.pointerEvents = 'all';
+                    handle.dataset.position = pos;
+                    
+                    handle.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startResize(e, handle);
+                    });
+                    
+                    container.appendChild(handle);
+                    resizeHandles.push(handle);
+                });
+
+                editor.appendChild(container);
+            }
+
+            // Remove resize handles
+            function removeResizeHandles() {
+                const container = editor.querySelector('.resize-container');
+                if (container) container.remove();
+                resizeHandles = [];
+            }
+
+            // Update resize handles position
+            function updateResizeHandles() {
+                if (!selectedImage) return;
+                
+                const container = editor.querySelector('.resize-container');
+                if (container) {
+                    const rect = selectedImage.getBoundingClientRect();
+                    const editorRect = editor.getBoundingClientRect();
+                    
+                    container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
+                    container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                    container.style.width = selectedImage.offsetWidth + 'px';
+                    container.style.height = selectedImage.offsetHeight + 'px';
                 }
+            }
 
-                // Initialize cursor position
-                let p = editor.querySelector('p');
-                if (p) {
-                    let range = document.createRange();
-                    range.setStart(p, 0);
-                    range.setEnd(p, 0);
-                    let sel = window.getSelection();
-                    sel.removeAllRanges();
-                    sel.addRange(range);
+            // Start resizing
+            function startResize(e, handle) {
+                if (!selectedImage) return;
+                isResizing = true;
+                currentResizeHandle = handle;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                resizeStartWidth = selectedImage.offsetWidth;
+                resizeStartHeight = selectedImage.offsetHeight;
+                selectedImage.classList.add('resizing');
+                
+                document.addEventListener('mousemove', handleResize);
+                document.addEventListener('mouseup', stopResize);
+            }
+
+            // Handle resize
+            function handleResize(e) {
+                if (!isResizing || !selectedImage || !currentResizeHandle) return;
+                
+                const deltaX = e.clientX - lastX;
+                const deltaY = e.clientY - lastY;
+                const position = currentResizeHandle.dataset.position;
+                
+                let newWidth = resizeStartWidth;
+                let newHeight = resizeStartHeight;
+                
+                if (position.includes('r')) newWidth += deltaX;
+                if (position.includes('l')) newWidth -= deltaX;
+                if (position.includes('b')) newHeight += deltaY;
+                if (position.includes('t')) newHeight -= deltaY;
+                
+                if (e.shiftKey) {
+                    const aspectRatio = resizeStartWidth / resizeStartHeight;
+                    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                        newHeight = newWidth / aspectRatio;
+                    } else {
+                        newWidth = newHeight * aspectRatio;
+                    }
                 }
+                
+                newWidth = Math.max(20, newWidth);
+                newHeight = Math.max(20, newHeight);
+                
+                selectedImage.style.width = newWidth + 'px';
+                selectedImage.style.height = newHeight + 'px';
+                
+                updateResizeHandles();
+            }
 
-                // Image handling variables
-                let selectedImage = null;
-                let resizeHandles = [];
-                let isDragging = false;
-                let isResizing = false;
-                let lastX, lastY;
-                let resizeStartWidth, resizeStartHeight;
-                let currentResizeHandle = null;
-                let contextMenu = null;
+            // Stop resizing
+            function stopResize() {
+                isResizing = false;
+                currentResizeHandle = null;
+                if (selectedImage) selectedImage.classList.remove('resizing');
+                document.removeEventListener('mousemove', handleResize);
+                document.removeEventListener('mouseup', stopResize);
+            }
 
-                // Create resize handles
-                function createResizeHandles(image) {
-                    removeResizeHandles();
-                    const container = document.createElement('div');
-                    container.style.position = 'absolute';
-                    container.style.left = image.offsetLeft + 'px';
-                    container.style.top = image.offsetTop + 'px';
-                    container.style.width = image.offsetWidth + 'px';
-                    container.style.height = image.offsetHeight + 'px';
-                    container.style.pointerEvents = 'none';
-                    container.className = 'resize-container';
+            // Start dragging
+            function startDrag(e, image) {
+                if (isResizing) return;
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                document.addEventListener('mousemove', handleDrag);
+                document.addEventListener('mouseup', stopDrag);
+            }
 
-                    const positions = ['tl', 'tr', 'bl', 'br'];
-                    positions.forEach(pos => {
-                        const handle = document.createElement('div');
-                        handle.className = `resize-handle ${pos}-handle`;
-                        handle.style.pointerEvents = 'all';
-                        handle.dataset.position = pos;
+            // Handle drag
+            function handleDrag(e) {
+                if (!isDragging || !selectedImage) return;
+                
+                const temp = document.createElement('span');
+                temp.style.display = 'inline-block';
+                temp.style.width = '1px';
+                temp.style.height = '1px';
+                
+                const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                if (range) {
+                    range.insertNode(temp);
+                    
+                    temp.parentNode.insertBefore(selectedImage, temp);
+                    temp.remove();
+                    
+                    updateResizeHandles();
+                }
+            }
+
+            // Stop dragging
+            function stopDrag() {
+                isDragging = false;
+                document.removeEventListener('mousemove', handleDrag);
+                document.removeEventListener('mouseup', stopDrag);
+            }
+
+            // Select image
+            function selectImage(image) {
+                if (selectedImage) selectedImage.classList.remove('selected');
+                selectedImage = image;
+                selectedImage.classList.add('selected');
+                createResizeHandles(image);
+            }
+
+            // Deselect image
+            function deselectImage() {
+                if (selectedImage) {
+                    selectedImage.classList.remove('selected');
+                    selectedImage = null;
+                }
+                removeResizeHandles();
+            }
+
+            // Create context menu
+            function createContextMenu(x, y) {
+                removeContextMenu();
+                contextMenu = document.createElement('div');
+                contextMenu.className = 'context-menu';
+                contextMenu.style.left = x + 'px';
+                contextMenu.style.top = y + 'px';
+                
+                const menuItems = [
+                    { label: 'Resize Image', action: 'resize' },
+                    { label: 'Alignment', submenu: [
+                        { label: 'Left', action: 'align-left' },
+                        { label: 'Center', action: 'align-center' },
+                        { label: 'Right', action: 'align-right' },
+                        { label: 'None', action: 'align-none' }
+                    ]},
+                    { label: 'Text Wrap', submenu: [
+                        { label: 'Around', action: 'wrap-around' },
+                        { label: 'None', action: 'wrap-none' }
+                    ]},
+                    { type: 'separator' },
+                    { label: 'Copy Image', action: 'copy' },
+                    { label: 'Delete Image', action: 'delete' }
+                ];
+                
+                createMenuItems(contextMenu, menuItems);
+                document.body.appendChild(contextMenu);
+                setTimeout(() => {
+                    document.addEventListener('click', closeContextMenuOnClickOutside);
+                }, 0);
+            }
+
+            // Create menu items
+            function createMenuItems(parent, items) {
+                items.forEach(item => {
+                    if (item.type === 'separator') {
+                        const separator = document.createElement('div');
+                        separator.className = 'context-menu-separator';
+                        parent.appendChild(separator);
+                    } else if (item.submenu) {
+                        const submenuItem = document.createElement('div');
+                        submenuItem.className = 'context-menu-item context-menu-submenu';
+                        submenuItem.textContent = item.label;
                         
-                        handle.addEventListener('mousedown', (e) => {
-                            e.preventDefault();
+                        const submenuContent = document.createElement('div');
+                        submenuContent.className = 'context-menu-submenu-content';
+                        createMenuItems(submenuContent, item.submenu);
+                        
+                        submenuItem.appendChild(submenuContent);
+                        parent.appendChild(submenuItem);
+                    } else {
+                        const menuItem = document.createElement('div');
+                        menuItem.className = 'context-menu-item';
+                        menuItem.textContent = item.label;
+                        menuItem.addEventListener('click', (e) => {
                             e.stopPropagation();
-                            startResize(e, handle);
+                            handleContextMenuAction(item.action);
+                            removeContextMenu();
                         });
-                        
-                        container.appendChild(handle);
-                        resizeHandles.push(handle);
-                    });
-
-                    editor.appendChild(container);
-                }
-
-                // Remove resize handles
-                function removeResizeHandles() {
-                    const container = editor.querySelector('.resize-container');
-                    if (container) container.remove();
-                    resizeHandles = [];
-                }
-
-                // Update resize handles position
-                function updateResizeHandles() {
-                    if (!selectedImage) return;
-                    
-                    const container = editor.querySelector('.resize-container');
-                    if (container) {
-                        const rect = selectedImage.getBoundingClientRect();
-                        const editorRect = editor.getBoundingClientRect();
-                        
-                        container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
-                        container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
-                        container.style.width = selectedImage.offsetWidth + 'px';
-                        container.style.height = selectedImage.offsetHeight + 'px';
+                        parent.appendChild(menuItem);
                     }
-                }
+                });
+            }
 
-                // Start resizing
-                function startResize(e, handle) {
-                    if (!selectedImage) return;
-                    isResizing = true;
-                    currentResizeHandle = handle;
-                    lastX = e.clientX;
-                    lastY = e.clientY;
-                    resizeStartWidth = selectedImage.offsetWidth;
-                    resizeStartHeight = selectedImage.offsetHeight;
-                    selectedImage.classList.add('resizing');
-                    
-                    document.addEventListener('mousemove', handleResize);
-                    document.addEventListener('mouseup', stopResize);
+            // Handle context menu action
+            function handleContextMenuAction(action) {
+                if (!selectedImage) return;
+                switch (action) {
+                    case 'resize':
+                        // Already selected
+                        break;
+                    case 'align-left':
+                        setImageAlignment(selectedImage, 'left');
+                        break;
+                    case 'align-center':
+                        setImageAlignment(selectedImage, 'center');
+                        break;
+                    case 'align-right':
+                        setImageAlignment(selectedImage, 'right');
+                        break;
+                    case 'align-none':
+                        setImageAlignment(selectedImage, 'none');
+                        break;
+                    case 'wrap-around':
+                        setTextWrap(selectedImage, 'around');
+                        break;
+                    case 'wrap-none':
+                        setTextWrap(selectedImage, 'none');
+                        break;
+                    case 'copy':
+                        copyImageToClipboard(selectedImage);
+                        break;
+                    case 'delete':
+                        deleteImage(selectedImage);
+                        break;
                 }
+            }
 
-                // Handle resize
-                function handleResize(e) {
-                    if (!isResizing || !selectedImage || !currentResizeHandle) return;
-                    
-                    const deltaX = e.clientX - lastX;
-                    const deltaY = e.clientY - lastY;
-                    const position = currentResizeHandle.dataset.position;
-                    
-                    let newWidth = resizeStartWidth;
-                    let newHeight = resizeStartHeight;
-                    
-                    if (position.includes('r')) newWidth += deltaX;
-                    if (position.includes('l')) newWidth -= deltaX;
-                    if (position.includes('b')) newHeight += deltaY;
-                    if (position.includes('t')) newHeight -= deltaY;
-                    
-                    if (e.shiftKey) {
-                        const aspectRatio = resizeStartWidth / resizeStartHeight;
-                        if ( 
-     
-    Math.abs(deltaX) > Math.abs(deltaY)) {
-                            newHeight = newWidth / aspectRatio;
-                        } else {
-                            newWidth = newHeight * aspectRatio;
-                        }
+            // Set image alignment
+            function setImageAlignment(image, alignment) {
+                image.classList.remove('align-left', 'align-right', 'align-center', 'align-none');
+                image.classList.add(`align-${alignment}`);
+                updateResizeHandles();
+            }
+
+            // Set text wrap
+            function setTextWrap(image, wrap) {
+                if (wrap === 'none') {
+                    image.style.float = 'none';
+                    const clearDiv = document.createElement('div');
+                    clearDiv.className = 'text-wrap-none';
+                    clearDiv.style.clear = 'both';
+                    if (image.nextSibling) {
+                        image.parentNode.insertBefore(clearDiv, image.nextSibling);
+                    } else {
+                        image.parentNode.appendChild(clearDiv);
                     }
-                    
-                    newWidth = Math.max(20, newWidth);
-                    newHeight = Math.max(20, newHeight);
-                    
-                    selectedImage.style.width = newWidth + 'px';
-                    selectedImage.style.height = newHeight + 'px';
-                    
-                    updateResizeHandles();
-                }
-
-                // Stop resizing
-                function stopResize() {
-                    isResizing = false;
-                    currentResizeHandle = null;
-                    if (selectedImage) selectedImage.classList.remove('resizing');
-                    document.removeEventListener('mousemove', handleResize);
-                    document.removeEventListener('mouseup', stopResize);
-                }
-
-                // Start dragging
-                function startDrag(e, image) {
-                    if (isResizing) return;
-                    isDragging = true;
-                    lastX = e.clientX;
-                    lastY = e.clientY;
-                    document.addEventListener('mousemove', handleDrag);
-                    document.addEventListener('mouseup', stopDrag);
-                }
-
-                // Handle drag
-                function handleDrag(e) {
-                    if (!isDragging || !selectedImage) return;
-                    
-                    const temp = document.createElement('span');
-                    temp.style.display = 'inline-block';
-                    temp.style.width = '1px';
-                    temp.style.height = '1px';
-                    
-                    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-                    if (range) {
-                        range.insertNode(temp);
-                        
-                        temp.parentNode.insertBefore(selectedImage, temp);
-                        temp.remove();
-                        
-                        updateResizeHandles();
+                } else if (wrap === 'around') {
+                    if (!image.classList.contains('align-left') && !image.classList.contains('align-right')) {
+                        setImageAlignment(image, 'left');
                     }
-                }
-
-                // Stop dragging
-                function stopDrag() {
-                    isDragging = false;
-                    document.removeEventListener('mousemove', handleDrag);
-                    document.removeEventListener('mouseup', stopDrag);
-                }
-
-                // Select image
-                function selectImage(image) {
-                    if (selectedImage) selectedImage.classList.remove('selected');
-                    selectedImage = image;
-                    selectedImage.classList.add('selected');
-                    createResizeHandles(image);
-                }
-
-                // Deselect image
-                function deselectImage() {
-                    if (selectedImage) {
-                        selectedImage.classList.remove('selected');
-                        selectedImage = null;
-                    }
-                    removeResizeHandles();
-                }
-
-                // Create context menu
-                function createContextMenu(x, y) {
-                    removeContextMenu();
-                    contextMenu = document.createElement('div');
-                    contextMenu.className = 'context-menu';
-                    contextMenu.style.left = x + 'px';
-                    contextMenu.style.top = y + 'px';
-                    
-                    const menuItems = [
-                        { label: 'Resize Image', action: 'resize' },
-                        { label: 'Alignment', submenu: [
-                            { label: 'Left', action: 'align-left' },
-                            { label: 'Center', action: 'align-center' },
-                            { label: 'Right', action: 'align-right' },
-                            { label: 'None', action: 'align-none' }
-                        ]},
-                        { label: 'Text Wrap', submenu: [
-                            { label: 'Around', action: 'wrap-around' },
-                            { label: 'None', action: 'wrap-none' }
-                        ]},
-                        { type: 'separator' },
-                        { label: 'Copy Image', action: 'copy' },
-                        { label: 'Delete Image', action: 'delete' }
-                    ];
-                    
-                    createMenuItems(contextMenu, menuItems);
-                    document.body.appendChild(contextMenu);
-                    setTimeout(() => {
-                        document.addEventListener('click', closeContextMenuOnClickOutside);
-                    }, 0);
-                }
-
-                // Create menu items
-                function createMenuItems(parent, items) {
-                    items.forEach(item => {
-                        if (item.type === 'separator') {
-                            const separator = document.createElement('div');
-                            separator.className = 'context-menu-separator';
-                            parent.appendChild(separator);
-                        } else if (item.submenu) {
-                            const submenuItem = document.createElement('div');
-                            submenuItem.className = 'context-menu-item context-menu-submenu';
-                            submenuItem.textContent = item.label;
-                            
-                            const submenuContent = document.createElement('div');
-                            submenuContent.className = 'context-menu-submenu-content';
-                            createMenuItems(submenuContent, item.submenu);
-                            
-                            submenuItem.appendChild(submenuContent);
-                            parent.appendChild(submenuItem);
-                        } else {
-                            const menuItem = document.createElement('div');
-                            menuItem.className = 'context-menu-item';
-                            menuItem.textContent = item.label;
-                            menuItem.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                handleContextMenuAction(item.action);
-                                removeContextMenu();
-                            });
-                            parent.appendChild(menuItem);
-                        }
-                    });
-                }
-
-                // Handle context menu action
-                function handleContextMenuAction(action) {
-                    if (!selectedImage) return;
-                    switch (action) {
-                        case 'resize':
-                            // Already selected
-                            break;
-                        case 'align-left':
-                            setImageAlignment(selectedImage, 'left');
-                            break;
-                        case 'align-center':
-                            setImageAlignment(selectedImage, 'center');
-                            break;
-                        case 'align-right':
-                            setImageAlignment(selectedImage, 'right');
-                            break;
-                        case 'align-none':
-                            setImageAlignment(selectedImage, 'none');
-                            break;
-                        case 'wrap-around':
-                            setTextWrap(selectedImage, 'around');
-                            break;
-                        case 'wrap-none':
-                            setTextWrap(selectedImage, 'none');
-                            break;
-                        case 'copy':
-                            copyImageToClipboard(selectedImage);
-                            break;
-                        case 'delete':
-                            deleteImage(selectedImage);
-                            break;
-                    }
-                }
-
-                // Set image alignment
-                function setImageAlignment(image, alignment) {
-                    image.classList.remove('align-left', 'align-right', 'align-center', 'align-none');
-                    image.classList.add(`align-${alignment}`);
-                    updateResizeHandles();
-                }
-
-                // Set text wrap
-                function setTextWrap(image, wrap) {
-                    if (wrap === 'none') {
-                        image.style.float = 'none';
-                        const clearDiv = document.createElement('div');
-                        clearDiv.className = 'text-wrap-none';
-                        clearDiv.style.clear = 'both';
-                        if (image.nextSibling) {
-                            image.parentNode.insertBefore(clearDiv, image.nextSibling);
-                        } else {
-                            image.parentNode.appendChild(clearDiv);
-                        }
-                    } else if (wrap === 'around') {
-                        if (!image.classList.contains('align-left') && !image.classList.contains('align-right')) {
-                            setImageAlignment(image, 'left');
-                        }
-                        const nextSibling = image.nextSibling;
-                        if (nextSibling && nextSibling.classList && nextSibling.classList.contains('text-wrap-none')) {
-                            nextSibling.remove();
-                        }
-                    }
-                }
-
-                // Copy image to clipboard
-                function copyImageToClipboard(image) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = image.naturalWidth;
-                    canvas.height = image.naturalHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(image, 0, 0);
-                    canvas.toBlob(blob => {
-                        const item = new ClipboardItem({ 'image/png': blob });
-                        navigator.clipboard.write([item]).then(
-                            () => console.log('Image copied to clipboard'),
-                            err => console.error('Error copying image: ', err)
-                        );
-                    });
-                }
-
-                // Delete image
-                function deleteImage(image) {
                     const nextSibling = image.nextSibling;
                     if (nextSibling && nextSibling.classList && nextSibling.classList.contains('text-wrap-none')) {
                         nextSibling.remove();
                     }
-                    deselectImage();
-                    image.remove();
                 }
+            }
 
-                // Remove context menu
-                function removeContextMenu() {
-                    if (contextMenu) {
-                        document.removeEventListener('click', closeContextMenuOnClickOutside);
-                        contextMenu.remove();
-                        contextMenu = null;
-                    }
+            // Copy image to clipboard
+            function copyImageToClipboard(image) {
+                const canvas = document.createElement('canvas');
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(image, 0, 0);
+                canvas.toBlob(blob => {
+                    const item = new ClipboardItem({ 'image/png': blob });
+                    navigator.clipboard.write([item]).then(
+                        () => console.log('Image copied to clipboard'),
+                        err => console.error('Error copying image: ', err)
+                    );
+                });
+            }
+
+            // Delete image
+            function deleteImage(image) {
+                const nextSibling = image.nextSibling;
+                if (nextSibling && nextSibling.classList && nextSibling.classList.contains('text-wrap-none')) {
+                    nextSibling.remove();
                 }
+                deselectImage();
+                image.remove();
+            }
 
-                // Close context menu on click outside
-                function closeContextMenuOnClickOutside(e) {
-                    if (contextMenu && !contextMenu.contains(e.target)) {
-                        removeContextMenu();
-                    }
+            // Remove context menu
+            function removeContextMenu() {
+                if (contextMenu) {
+                    document.removeEventListener('click', closeContextMenuOnClickOutside);
+                    contextMenu.remove();
+                    contextMenu = null;
                 }
+            }
 
-                // Event listeners
-                editor.addEventListener('click', (e) => {
+            // Close context menu on click outside
+            function closeContextMenuOnClickOutside(e) {
+                if (contextMenu && !contextMenu.contains(e.target)) {
                     removeContextMenu();
-                    if (e.target.tagName === 'IMG') {
-                        e.preventDefault();
-                        selectImage(e.target);
-                    } else {
-                        deselectImage();
-                    }
-                });
+                }
+            }
 
-                editor.addEventListener('contextmenu', (e) => {
-                    if (e.target.tagName === 'IMG') {
-                        e.preventDefault();
-                        selectImage(e.target);
-                        createContextMenu(e.clientX, e.clientY);
-                    }
-                });
+            // Event listeners
+            editor.addEventListener('click', (e) => {
+                removeContextMenu();
+                if (e.target.tagName === 'IMG') {
+                    e.preventDefault();
+                    selectImage(e.target);
+                } else {
+                    deselectImage();
+                }
+            });
 
-                editor.addEventListener('mousedown', (e) => {
-                    if (e.target.tagName === 'IMG' && e.button === 0) {
-                        e.preventDefault();
-                        if (selectedImage !== e.target) {
-                            selectImage(e.target);
+            editor.addEventListener('contextmenu', (e) => {
+                if (e.target.tagName === 'IMG') {
+                    e.preventDefault();
+                    selectImage(e.target);
+                    createContextMenu(e.clientX, e.clientY);
+                }
+            });
+
+            editor.addEventListener('mousedown', (e) => {
+                if (e.target.tagName === 'IMG' && e.button === 0) {
+                    e.preventDefault();
+                    if (selectedImage !== e.target) {
+                        selectImage(e.target);
+                    }
+                    startDrag(e, e.target);
+                }
+            });
+
+            // Initialize existing images
+            editor.querySelectorAll('img').forEach(img => {
+                img.contentEditable = false;
+                img.draggable = true;
+            });
+
+            // Mutation observer for new images
+            const observer = new MutationObserver(mutations => {
+                mutations.forEach(mutation => {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.tagName === 'IMG') {
+                            node.contentEditable = false;
+                            node.draggable = true;
                         }
-                        startDrag(e, e.target);
-                    }
-                });
-
-                // Initialize existing images
-                editor.querySelectorAll('img').forEach(img => {
-                    img.contentEditable = false;
-                    img.draggable = true;
-                });
-
-                // Mutation observer for new images
-                const observer = new MutationObserver(mutations => {
-                    mutations.forEach(mutation => {
-                        mutation.addedNodes.forEach(node => {
-                            if (node.tagName === 'IMG') {
-                                node.contentEditable = false;
-                                node.draggable = true;
-                            }
-                        });
                     });
                 });
-                observer.observe(editor, { childList: true, subtree: true });
+            });
+            observer.observe(editor, { childList: true, subtree: true });
 
-                // Content change notification
-                function debounce(func, wait) {
-                    let timeout;
-                    return function(...args) {
-                        clearTimeout(timeout);
-                        timeout = setTimeout(() => func(...args), wait);
-                    };
+            // Function to insert and select image
+            window.insertAndSelectImage = function(src) {
+                document.execCommand('insertHTML', false, '<img src="' + src + '">');
+                const images = editor.querySelectorAll('img');
+                const lastImage = images[images.length - 1];
+                if (lastImage) {
+                    lastImage.contentEditable = false;
+                    lastImage.draggable = true;
+                    selectImage(lastImage);
+                    setImageAlignment(lastImage, 'left');
+                    setTextWrap(lastImage, 'around');
                 }
+            };
+        })();
+        """
+        self.exec_js(script)
 
-                let lastContent = editor.innerHTML;
-                const notifyChange = debounce(function() {
-                    let currentContent = editor.innerHTML;
-                    if (currentContent !== lastContent) {
-                        window.webkit.messageHandlers.contentChanged.postMessage('changed');
-                        lastContent = currentContent;
-                    }
-                }, 250);
-
-                editor.addEventListener('input', notifyChange);
-                editor.addEventListener('paste', notifyChange);
-                editor.addEventListener('cut', notifyChange);
-
-                // Selection change notification
-                const notifySelectionChange = debounce(function() {
-                    const sel = window.getSelection();
-                    if (sel.rangeCount > 0) {
-                        const range = sel.getRangeAt(0);
-                        let element = range.startContainer;
-                        if (element.nodeType === Node.TEXT_NODE) {
-                            element = element.parentElement;
-                        }
-                        const style = window.getComputedStyle(element);
-                        const state = {
-                            bold: document.queryCommandState('bold'),
-                            italic: document.queryCommandState('italic'),
-                            underline: document.queryCommandState('underline'),
-                            // Add other states as needed
-                        };
-                        window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
-                    }
-                }, 100);
-
-                document.addEventListener('selectionchange', notifySelectionChange);
-                notifySelectionChange();
-
-                // Function to insert and select image
-                window.insertAndSelectImage = function(src) {
-                    document.execCommand('insertHTML', false, '<img src="' + src + '">');
-                    const images = editor.querySelectorAll('img');
-                    const lastImage = images[images.length - 1];
-                    if (lastImage) {
-                        lastImage.contentEditable = false;
-                        lastImage.draggable = true;
-                        selectImage(lastImage);
-                        setImageAlignment(lastImage, 'left');
-                        setTextWrap(lastImage, 'around');
-                    }
-                };
-            })();
-            """
-            self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
-            GLib.idle_add(self.webview.grab_focus)    
+    def setup_content_change_notification(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
             
+            // Content change notification
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func(...args), wait);
+                };
+            }
+
+            let lastContent = editor.innerHTML;
+            const notifyChange = debounce(function() {
+                let currentContent = editor.innerHTML;
+                if (currentContent !== lastContent) {
+                    window.webkit.messageHandlers.contentChanged.postMessage('changed');
+                    lastContent = currentContent;
+                }
+            }, 250);
+
+            editor.addEventListener('input', notifyChange);
+            editor.addEventListener('paste', notifyChange);
+            editor.addEventListener('cut', notifyChange);
+        })();
+        """
+        self.exec_js(script)
+
+    def setup_selection_change_notification(self):
+        script = """
+        (function() {
+            const editor = document.getElementById('editor');
+            if (!editor) {
+                console.error('Editor element not found');
+                return;
+            }
+            
+            // Selection change notification
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func(...args), wait);
+                };
+            }
+            
+            const notifySelectionChange = debounce(function() {
+                const sel = window.getSelection();
+                if (sel.rangeCount > 0) {
+                    const range = sel.getRangeAt(0);
+                    let element = range.startContainer;
+                    if (element.nodeType === Node.TEXT_NODE) {
+                        element = element.parentElement;
+                    }
+                    const style = window.getComputedStyle(element);
+                    const state = {
+                        bold: document.queryCommandState('bold'),
+                        italic: document.queryCommandState('italic'),
+                        underline: document.queryCommandState('underline'),
+                        // Add other states as needed
+                    };
+                    window.webkit.messageHandlers.selectionChanged.postMessage(JSON.stringify(state));
+                }
+            }, 100);
+
+            document.addEventListener('selectionchange', notifySelectionChange);
+            notifySelectionChange(); // Call once to initialize
+        })();
+        """
+        self.exec_js(script)            
     def on_selection_changed(self, user_content, message):
         if message.is_string():
             state_str = message.to_string()
