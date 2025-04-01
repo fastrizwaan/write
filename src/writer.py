@@ -116,11 +116,12 @@ class EditorWindow(Adw.ApplicationWindow):
             min-height: 1000px;
             overflow-y: auto;
         }
-        /* Remaining styles for images, context menu, etc., remain unchanged */
         img {
             display: inline-block;
             max-width: 50%;
             cursor: move;
+            box-sizing: border-box;
+            height: auto;
         }
         img.selected {
             outline: 2px solid #4285f4;
@@ -128,6 +129,29 @@ class EditorWindow(Adw.ApplicationWindow):
         }
         img.resizing {
             outline: 2px dashed #4285f4;
+        }
+        img.align-left {
+            float: left;
+            margin: 0 15px 10px 0;
+            shape-outside: margin-box;
+        }
+        img.align-right {
+            float: right;
+            margin: 0 0 10px 15px;
+            shape-outside: margin-box;
+        }
+        img.align-center {
+            display: block;
+            margin: 10px auto;
+            float: none;
+        }
+        img.align-none {
+            float: none;
+            margin: 10px 0;
+            display: block;
+        }
+        .text-wrap-none {
+            clear: both;
         }
         .resize-handle {
             position: absolute;
@@ -181,26 +205,6 @@ class EditorWindow(Adw.ApplicationWindow):
         }
         .context-menu-submenu:hover .context-menu-submenu-content {
             display: block;
-        }
-        img.align-left {
-            float: left;
-            margin: 0 15px 10px 0;
-        }
-        img.align-right {
-            float: right;
-            margin: 0 0 10px 15px;
-        }
-        img.align-center {
-            display: block;
-            margin: 10px auto;
-            float: none;
-        }
-        img.align-none {
-            float: none;
-            margin: 10px 0;
-        }
-        .text-wrap-none {
-            clear: both;
         }
     </style>
 </head>
@@ -484,6 +488,7 @@ class EditorWindow(Adw.ApplicationWindow):
         """
         self.exec_js(script)
 
+
     def setup_image_handling(self):
         script = """
         (function() {
@@ -502,16 +507,150 @@ class EditorWindow(Adw.ApplicationWindow):
             let resizeStartWidth, resizeStartHeight;
             let currentResizeHandle = null;
             let contextMenu = null;
-
+            
+            // Current image properties
+            let currentBorderWidth = '0';
+            let currentBorderStyle = 'solid';
+            let currentBorderColor = '#000000';
+            let currentBackgroundColor = 'transparent';
+            
+            // Add additional CSS dynamically for image handling
+            const style = document.createElement('style');
+            style.textContent = `
+                img {
+                    max-width: 100%;
+                    height: auto;
+                    box-sizing: border-box;
+                    background-color: transparent;
+                }
+                
+                img.align-left {
+                    float: left;
+                    margin: 0 15px 10px 0;
+                }
+                
+                img.align-right {
+                    float: right;
+                    margin: 0 0 10px 15px;
+                }
+                
+                img.align-center {
+                    display: block;
+                    margin: 10px auto;
+                    float: none;
+                }
+                
+                img.align-inline {
+                    display: inline;
+                    vertical-align: middle;
+                    margin: 0 5px;
+                }
+                
+                .resize-handle {
+                    position: absolute;
+                    width: 10px;
+                    height: 10px;
+                    background-color: #4285f4;
+                    border: 1px solid white;
+                    border-radius: 50%;
+                    z-index: 999;
+                }
+                
+                .tl-handle { top: -5px; left: -5px; cursor: nw-resize; }
+                .tr-handle { top: -5px; right: -5px; cursor: ne-resize; }
+                .bl-handle { bottom: -5px; left: -5px; cursor: sw-resize; }
+                .br-handle { bottom: -5px; right: -5px; cursor: se-resize; }
+                
+                img.selected {
+                    outline: 2px solid #4285f4;
+                    box-shadow: 0 0 10px rgba(66, 133, 244, 0.5);
+                }
+                
+                img.resizing {
+                    outline: 2px dashed #4285f4;
+                }
+                
+                .context-menu {
+                    position: absolute;
+                    border: 1px solid;
+                    border-radius: 4px;
+                    padding: 5px 0;
+                    z-index: 1000;
+                    min-width: 150px;
+                }
+                
+                .context-menu-item {
+                    padding: 8px 15px;
+                    cursor: pointer;
+                    user-select: none;
+                }
+                
+                .context-menu-separator {
+                    height: 1px;
+                    margin: 5px 0;
+                }
+                
+                .context-menu-submenu {
+                    position: relative;
+                }
+                
+                .context-menu-submenu::after {
+                    content: '▶';
+                    position: absolute;
+                    right: 10px;
+                    top: 8px;
+                    font-size: 10px;
+                }
+                
+                .context-menu-submenu-content {
+                    display: none;
+                    position: absolute;
+                    left: 100%;
+                    top: 0;
+                    border: 1px solid;
+                    border-radius: 4px;
+                    padding: 5px 0;
+                    min-width: 150px;
+                }
+                
+                .context-menu-submenu:hover .context-menu-submenu-content {
+                    display: block;
+                }
+                
+                .color-preview {
+                    display: inline-block;
+                    width: 15px;
+                    height: 15px;
+                    border: 1px solid #ccc;
+                    margin-right: 5px;
+                    vertical-align: middle;
+                }
+                
+                .transparent-color {
+                    background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), 
+                                      linear-gradient(-45deg, #ccc 25%, transparent 25%), 
+                                      linear-gradient(45deg, transparent 75%, #ccc 75%), 
+                                      linear-gradient(-45deg, transparent 75%, #ccc 75%);
+                    background-size: 10px 10px;
+                    background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+                }
+            `;
+            document.head.appendChild(style);
+            
             // Create resize handles
             function createResizeHandles(image) {
                 removeResizeHandles();
                 const container = document.createElement('div');
                 container.style.position = 'absolute';
-                container.style.left = image.offsetLeft + 'px';
-                container.style.top = image.offsetTop + 'px';
+                
+                // Get position relative to editor
+                const rect = image.getBoundingClientRect();
+                const editorRect = editor.getBoundingClientRect();
+                container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
+                container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
                 container.style.width = image.offsetWidth + 'px';
                 container.style.height = image.offsetHeight + 'px';
+                
                 container.style.pointerEvents = 'none';
                 container.className = 'resize-container';
 
@@ -614,43 +753,28 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (selectedImage) selectedImage.classList.remove('resizing');
                 document.removeEventListener('mousemove', handleResize);
                 document.removeEventListener('mouseup', stopResize);
-            }
-
-            // Start dragging
-            function startDrag(e, image) {
-                if (isResizing) return;
-                isDragging = true;
-                lastX = e.clientX;
-                lastY = e.clientY;
-                document.addEventListener('mousemove', handleDrag);
-                document.addEventListener('mouseup', stopDrag);
-            }
-
-            // Handle drag
-            function handleDrag(e) {
-                if (!isDragging || !selectedImage) return;
+            }        
+            // Set border properties (updated to include style)
+            function setBorder(image, width, style, color) {
+                if (!image) return;
                 
-                const temp = document.createElement('span');
-                temp.style.display = 'inline-block';
-                temp.style.width = '1px';
-                temp.style.height = '1px';
+                if (width) currentBorderWidth = width;
+                if (style) currentBorderStyle = style;
+                if (color) currentBorderColor = color;
                 
-                const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-                if (range) {
-                    range.insertNode(temp);
-                    
-                    temp.parentNode.insertBefore(selectedImage, temp);
-                    temp.remove();
-                    
-                    updateResizeHandles();
+                if (currentBorderWidth === '0') {
+                    image.style.border = 'none';
+                } else {
+                    image.style.border = `${currentBorderWidth}px ${currentBorderStyle} ${currentBorderColor}`;
                 }
             }
 
-            // Stop dragging
-            function stopDrag() {
-                isDragging = false;
-                document.removeEventListener('mousemove', handleDrag);
-                document.removeEventListener('mouseup', stopDrag);
+            // Set background color
+            function setBackgroundColor(image, color) {
+                if (!image) return;
+                
+                currentBackgroundColor = color;
+                image.style.backgroundColor = color;
             }
 
             // Select image
@@ -658,19 +782,123 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (selectedImage) selectedImage.classList.remove('selected');
                 selectedImage = image;
                 selectedImage.classList.add('selected');
+                
+                // Store the current alignment in dataset for potential drag operations
+                image.dataset.alignment = getCurrentAlignment(image);
+                
+                // Update current properties based on actual image styling
+                const computedStyle = window.getComputedStyle(image);
+                
+                // Border width
+                const borderWidth = image.style.borderWidth || computedStyle.borderWidth;
+                currentBorderWidth = borderWidth ? parseInt(borderWidth) + '' : '0';
+                
+                // Border style
+                const borderStyle = image.style.borderStyle || computedStyle.borderStyle;
+                currentBorderStyle = borderStyle && borderStyle !== 'none' ? borderStyle : 'solid';
+                
+                // Border color
+                currentBorderColor = image.style.borderColor || computedStyle.borderColor || '#000000';
+                
+                // Background color
+                currentBackgroundColor = image.style.backgroundColor || computedStyle.backgroundColor || 'transparent';
+                
                 createResizeHandles(image);
             }
 
-            // Deselect image
-            function deselectImage() {
-                if (selectedImage) {
-                    selectedImage.classList.remove('selected');
-                    selectedImage = null;
-                }
-                removeResizeHandles();
+            // Create color picker interface (updated to include transparent option)
+            function createColorPickerDialog(title, initialColor, callback) {
+                const overlay = document.createElement('div');
+                overlay.style.position = 'fixed';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.width = '100%';
+                overlay.style.height = '100%';
+                overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+                overlay.style.zIndex = '10000';
+                overlay.style.display = 'flex';
+                overlay.style.justifyContent = 'center';
+                overlay.style.alignItems = 'center';
+                
+                const dialog = document.createElement('div');
+                dialog.style.backgroundColor = 'white';
+                dialog.style.borderRadius = '5px';
+                dialog.style.padding = '20px';
+                dialog.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
+                dialog.style.maxWidth = '300px';
+                dialog.style.width = '100%';
+                
+                const titleElem = document.createElement('h3');
+                titleElem.textContent = title;
+                titleElem.style.margin = '0 0 15px 0';
+                
+                const colorInput = document.createElement('input');
+                colorInput.type = 'color';
+                colorInput.value = initialColor !== 'transparent' && initialColor !== 'rgba(0, 0, 0, 0)' ? 
+                                   initialColor : '#000000';
+                colorInput.style.width = '100%';
+                colorInput.style.height = '40px';
+                colorInput.style.marginBottom = '15px';
+                
+                // Add transparent checkbox
+                const transparentContainer = document.createElement('div');
+                transparentContainer.style.marginBottom = '15px';
+                
+                const transparentCheckbox = document.createElement('input');
+                transparentCheckbox.type = 'checkbox';
+                transparentCheckbox.id = 'transparent-checkbox';
+                transparentCheckbox.checked = initialColor === 'transparent' || initialColor === 'rgba(0, 0, 0, 0)';
+                
+                const transparentLabel = document.createElement('label');
+                transparentLabel.htmlFor = 'transparent-checkbox';
+                transparentLabel.textContent = 'Transparent';
+                transparentLabel.style.marginLeft = '5px';
+                
+                transparentContainer.appendChild(transparentCheckbox);
+                transparentContainer.appendChild(transparentLabel);
+                
+                // Disable color picker when transparent is checked
+                transparentCheckbox.addEventListener('change', () => {
+                    colorInput.disabled = transparentCheckbox.checked;
+                });
+                colorInput.disabled = transparentCheckbox.checked;
+                
+                const buttonContainer = document.createElement('div');
+                buttonContainer.style.display = 'flex';
+                buttonContainer.style.justifyContent = 'flex-end';
+                
+                const cancelButton = document.createElement('button');
+                cancelButton.textContent = 'Cancel';
+                cancelButton.style.padding = '5px 10px';
+                cancelButton.style.marginRight = '10px';
+                
+                const okButton = document.createElement('button');
+                okButton.textContent = 'OK';
+                okButton.style.padding = '5px 10px';
+                
+                cancelButton.addEventListener('click', () => {
+                    document.body.removeChild(overlay);
+                });
+                
+                okButton.addEventListener('click', () => {
+                    const finalColor = transparentCheckbox.checked ? 'transparent' : colorInput.value;
+                    callback(finalColor);
+                    document.body.removeChild(overlay);
+                });
+                
+                buttonContainer.appendChild(cancelButton);
+                buttonContainer.appendChild(okButton);
+                
+                dialog.appendChild(titleElem);
+                dialog.appendChild(colorInput);
+                dialog.appendChild(transparentContainer);
+                dialog.appendChild(buttonContainer);
+                
+                overlay.appendChild(dialog);
+                document.body.appendChild(overlay);
             }
 
-            // Create context menu
+            // Create context menu (updated with new border styles)
             function createContextMenu(x, y) {
                 removeContextMenu();
                 contextMenu = document.createElement('div');
@@ -679,19 +907,30 @@ class EditorWindow(Adw.ApplicationWindow):
                 contextMenu.style.top = y + 'px';
                 
                 const menuItems = [
-                    { label: 'Resize Image', action: 'resize' },
                     { label: 'Alignment', submenu: [
                         { label: 'Left', action: 'align-left' },
                         { label: 'Center', action: 'align-center' },
                         { label: 'Right', action: 'align-right' },
-                        { label: 'None', action: 'align-none' }
+                        { label: 'In-Line with Text', action: 'align-inline' }
                     ]},
-                    { label: 'Text Wrap', submenu: [
-                        { label: 'Around', action: 'wrap-around' },
-                        { label: 'None', action: 'wrap-none' }
+                    { label: 'Border Width', submenu: [
+                        { label: 'None', action: 'border-width-0' },
+                        { label: '1px', action: 'border-width-1' },
+                        { label: '2px', action: 'border-width-2' },
+                        { label: '3px', action: 'border-width-3' },
+                        { label: '4px', action: 'border-width-4' },
+                        { label: '5px', action: 'border-width-5' },
+                        { label: '6px', action: 'border-width-6' }
                     ]},
+                    { label: 'Border Style', submenu: [
+                        { label: 'Solid', action: 'border-style-solid' },
+                        { label: 'Dotted', action: 'border-style-dotted' },
+                        { label: 'Dashed', action: 'border-style-dashed' },
+                        { label: 'Double', action: 'border-style-double' }
+                    ]},
+                    { label: 'Border Color...', action: 'border-color' },
+                    { label: 'Background Color...', action: 'bg-color' },
                     { type: 'separator' },
-                    { label: 'Copy Image', action: 'copy' },
                     { label: 'Delete Image', action: 'delete' }
                 ];
                 
@@ -723,7 +962,54 @@ class EditorWindow(Adw.ApplicationWindow):
                     } else {
                         const menuItem = document.createElement('div');
                         menuItem.className = 'context-menu-item';
-                        menuItem.textContent = item.label;
+                        
+                        // Add color preview if it's a color option
+                        if (item.action === 'border-color') {
+                            const colorPreview = document.createElement('span');
+                            colorPreview.className = 'color-preview';
+                            if (currentBorderColor === 'transparent' || currentBorderColor === 'rgba(0, 0, 0, 0)') {
+                                colorPreview.classList.add('transparent-color');
+                            } else {
+                                colorPreview.style.backgroundColor = currentBorderColor;
+                            }
+                            menuItem.appendChild(colorPreview);
+                        } else if (item.action === 'bg-color') {
+                            const colorPreview = document.createElement('span');
+                            colorPreview.className = 'color-preview';
+                            if (currentBackgroundColor === 'transparent' || currentBackgroundColor === 'rgba(0, 0, 0, 0)') {
+                                colorPreview.classList.add('transparent-color');
+                            } else {
+                                colorPreview.style.backgroundColor = currentBackgroundColor;
+                            }
+                            menuItem.appendChild(colorPreview);
+                        }
+                        
+                        menuItem.appendChild(document.createTextNode(item.label));
+                        
+                        // Highlight the active alignment
+                        if (item.action.startsWith('align-')) {
+                            const alignType = item.action.replace('align-', '');
+                            if (selectedImage && alignType === getCurrentAlignment(selectedImage)) {
+                                menuItem.style.fontWeight = 'bold';
+                            }
+                        }
+                        
+                        // Highlight the active border width
+                        if (item.action.startsWith('border-width-')) {
+                            const width = item.action.replace('border-width-', '');
+                            if (selectedImage && width === currentBorderWidth) {
+                                menuItem.style.fontWeight = 'bold';
+                            }
+                        }
+                        
+                        // Highlight the active border style
+                        if (item.action.startsWith('border-style-')) {
+                            const style = item.action.replace('border-style-', '');
+                            if (selectedImage && style === currentBorderStyle) {
+                                menuItem.style.fontWeight = 'bold';
+                            }
+                        }
+                        
                         menuItem.addEventListener('click', (e) => {
                             e.stopPropagation();
                             handleContextMenuAction(item.action);
@@ -733,93 +1019,161 @@ class EditorWindow(Adw.ApplicationWindow):
                     }
                 });
             }
-
             // Handle context menu action
             function handleContextMenuAction(action) {
                 if (!selectedImage) return;
-                switch (action) {
-                    case 'resize':
-                        // Already selected
-                        break;
-                    case 'align-left':
-                        setImageAlignment(selectedImage, 'left');
-                        break;
-                    case 'align-center':
-                        setImageAlignment(selectedImage, 'center');
-                        break;
-                    case 'align-right':
-                        setImageAlignment(selectedImage, 'right');
-                        break;
-                    case 'align-none':
-                        setImageAlignment(selectedImage, 'none');
-                        break;
-                    case 'wrap-around':
-                        setTextWrap(selectedImage, 'around');
-                        break;
-                    case 'wrap-none':
-                        setTextWrap(selectedImage, 'none');
-                        break;
-                    case 'copy':
-                        copyImageToClipboard(selectedImage);
-                        break;
-                    case 'delete':
-                        deleteImage(selectedImage);
-                        break;
+                
+                if (action.startsWith('align-')) {
+                    const alignType = action.replace('align-', '');
+                    setAlignment(selectedImage, alignType);
+                    // Store the alignment for potential drag operations
+                    selectedImage.dataset.alignment = alignType;
+                } else if (action.startsWith('border-width-')) {
+                    const width = action.replace('border-width-', '');
+                    setBorder(selectedImage, width, null, null);
+                } else if (action.startsWith('border-style-')) {
+                    const style = action.replace('border-style-', '');
+                    setBorder(selectedImage, null, style, null);
+                } else if (action === 'border-color') {
+                    createColorPickerDialog('Choose Border Color', currentBorderColor, (color) => {
+                        setBorder(selectedImage, null, null, color);
+                    });
+                } else if (action === 'bg-color') {
+                    createColorPickerDialog('Choose Background Color', currentBackgroundColor, (color) => {
+                        setBackgroundColor(selectedImage, color);
+                    });
+                } else if (action === 'copy') {
+                    copyImageToClipboard(selectedImage);
+                } else if (action === 'delete') {
+                    deleteImage(selectedImage);
                 }
             }
 
-            // Set image alignment
-            function setImageAlignment(image, alignment) {
-                image.classList.remove('align-left', 'align-right', 'align-center', 'align-none');
-                image.classList.add(`align-${alignment}`);
-                updateResizeHandles();
+            // Start dragging
+            function startDrag(e, image) {
+                if (isResizing) return;
+                isDragging = true;
+                lastX = e.clientX;
+                lastY = e.clientY;
+                
+                // Store the current alignment
+                const alignment = getCurrentAlignment(image);
+                image.dataset.alignment = alignment;
+                
+                document.addEventListener('mousemove', handleDrag);
+                document.addEventListener('mouseup', stopDrag);
             }
 
-            // Set text wrap
-            function setTextWrap(image, wrap) {
-                if (wrap === 'none') {
-                    image.style.float = 'none';
-                    const clearDiv = document.createElement('div');
-                    clearDiv.className = 'text-wrap-none';
-                    clearDiv.style.clear = 'both';
-                    if (image.nextSibling) {
-                        image.parentNode.insertBefore(clearDiv, image.nextSibling);
-                    } else {
-                        image.parentNode.appendChild(clearDiv);
-                    }
-                } else if (wrap === 'around') {
-                    if (!image.classList.contains('align-left') && !image.classList.contains('align-right')) {
-                        setImageAlignment(image, 'left');
-                    }
-                    const nextSibling = image.nextSibling;
-                    if (nextSibling && nextSibling.classList && nextSibling.classList.contains('text-wrap-none')) {
-                        nextSibling.remove();
-                    }
+            // Handle drag
+            function handleDrag(e) {
+                if (!isDragging || !selectedImage) return;
+                
+                // Create a temporary marker for insertion
+                const temp = document.createElement('span');
+                temp.style.display = 'inline-block';
+                temp.style.width = '1px';
+                temp.style.height = '1px';
+                
+                // Find insertion point from cursor position
+                const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                if (range) {
+                    // Insert temporary marker
+                    range.insertNode(temp);
+                    
+                    // Get the stored alignment
+                    const alignment = selectedImage.dataset.alignment || 'left';
+                    
+                    // Move the image to the new position
+                    temp.parentNode.insertBefore(selectedImage, temp);
+                    temp.remove();
+                    
+                    // Apply alignment
+                    setAlignment(selectedImage, alignment);
+                    
+                    // Update the resize handles
+                    updateResizeHandles();
                 }
             }
 
-            // Copy image to clipboard
-            function copyImageToClipboard(image) {
-                const canvas = document.createElement('canvas');
-                canvas.width = image.naturalWidth;
-                canvas.height = image.naturalHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(image, 0, 0);
-                canvas.toBlob(blob => {
-                    const item = new ClipboardItem({ 'image/png': blob });
-                    navigator.clipboard.write([item]).then(
-                        () => console.log('Image copied to clipboard'),
-                        err => console.error('Error copying image: ', err)
-                    );
-                });
+            // Stop dragging
+            function stopDrag() {
+                isDragging = false;
+                document.removeEventListener('mousemove', handleDrag);
+                document.removeEventListener('mouseup', stopDrag);
+                
+                // Re-apply alignment
+                if (selectedImage) {
+                    const alignment = selectedImage.dataset.alignment || getCurrentAlignment(selectedImage);
+                    setAlignment(selectedImage, alignment);
+                }
+            }
+
+            // Get current alignment from image classes
+            function getCurrentAlignment(image) {
+                if (image.classList.contains('align-left')) return 'left';
+                if (image.classList.contains('align-right')) return 'right';
+                if (image.classList.contains('align-center')) return 'center';
+                if (image.classList.contains('align-inline')) return 'inline';
+                
+                return 'left'; // Default
+            }
+
+            // Clear all alignment classes
+            function clearAlignmentClasses(image) {
+                image.classList.remove('align-left', 'align-right', 'align-center', 'align-inline');
+            }
+
+            // Set alignment
+            function setAlignment(image, alignment) {
+                // Clear all alignment classes
+                clearAlignmentClasses(image);
+                
+                // Reset float and display styles
+                image.style.float = '';
+                image.style.display = '';
+                image.style.margin = '';
+                
+                // Apply the requested alignment
+                switch (alignment) {
+                    case 'left':
+                        image.classList.add('align-left');
+                        image.style.float = 'left';
+                        image.style.margin = '0 15px 10px 0';
+                        break;
+                    case 'right':
+                        image.classList.add('align-right');
+                        image.style.float = 'right';
+                        image.style.margin = '0 0 10px 15px';
+                        break;
+                    case 'center':
+                        image.classList.add('align-center');
+                        image.style.display = 'block';
+                        image.style.margin = '10px auto';
+                        break;
+                    case 'inline':
+                        image.classList.add('align-inline');
+                        image.style.display = 'inline';
+                        image.style.verticalAlign = 'middle';
+                        image.style.margin = '0 5px';
+                        break;
+                }
+                
+                // Update resize handles if image is selected
+                if (selectedImage === image) {
+                    updateResizeHandles();
+                }
+            }
+            // Deselect image
+            function deselectImage() {
+                if (selectedImage) {
+                    selectedImage.classList.remove('selected');
+                    selectedImage = null;
+                }
+                removeResizeHandles();
             }
 
             // Delete image
             function deleteImage(image) {
-                const nextSibling = image.nextSibling;
-                if (nextSibling && nextSibling.classList && nextSibling.classList.contains('text-wrap-none')) {
-                    nextSibling.remove();
-                }
                 deselectImage();
                 image.remove();
             }
@@ -839,6 +1193,41 @@ class EditorWindow(Adw.ApplicationWindow):
                     removeContextMenu();
                 }
             }
+
+            // Set up clipboard paste handler
+
+            document.addEventListener('paste', (event) => {
+                const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+                for (const item of items) {
+                    if (item.type.indexOf('image') === 0) {
+                        event.preventDefault();
+                        
+                        const blob = item.getAsFile();
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const img = document.createElement('img');
+                            img.src = e.target.result;
+                            img.contentEditable = false;
+                            img.draggable = true;
+                            
+                            const selection = window.getSelection();
+                            if (selection.rangeCount > 0) {
+                                const range = selection.getRangeAt(0);
+                                range.deleteContents();
+                                range.insertNode(img);
+                                
+                                // Set default alignment
+                                setAlignment(img, 'left');
+                                
+                                // Select the newly pasted image
+                                selectImage(img);
+                            }
+                        };
+                        reader.readAsDataURL(blob);
+                        break;
+                    }
+                }
+            });
 
             // Event listeners
             editor.addEventListener('click', (e) => {
@@ -869,10 +1258,32 @@ class EditorWindow(Adw.ApplicationWindow):
                 }
             });
 
+            // Window scroll event to update resize handles
+            window.addEventListener('scroll', () => {
+                if (selectedImage) {
+                    updateResizeHandles();
+                }
+            });
+
+            // Editor scroll event to update resize handles
+            editor.addEventListener('scroll', () => {
+                if (selectedImage) {
+                    updateResizeHandles();
+                }
+            });
+
             // Initialize existing images
             editor.querySelectorAll('img').forEach(img => {
                 img.contentEditable = false;
                 img.draggable = true;
+                
+                // If no alignment class, set default alignment
+                if (!img.classList.contains('align-left') && 
+                    !img.classList.contains('align-right') && 
+                    !img.classList.contains('align-center') && 
+                    !img.classList.contains('align-inline')) {
+                    setAlignment(img, 'left');
+                }
             });
 
             // Mutation observer for new images
@@ -882,6 +1293,17 @@ class EditorWindow(Adw.ApplicationWindow):
                         if (node.tagName === 'IMG') {
                             node.contentEditable = false;
                             node.draggable = true;
+                            
+                            // Apply default alignment if no alignment class is present
+                            const hasAlignmentClass = node.classList && 
+                                (node.classList.contains('align-left') || 
+                                 node.classList.contains('align-right') || 
+                                 node.classList.contains('align-center') || 
+                                 node.classList.contains('align-inline'));
+                            
+                            if (!hasAlignmentClass) {
+                                setAlignment(node, 'left');
+                            }
                         }
                     });
                 });
@@ -897,13 +1319,13 @@ class EditorWindow(Adw.ApplicationWindow):
                     lastImage.contentEditable = false;
                     lastImage.draggable = true;
                     selectImage(lastImage);
-                    setImageAlignment(lastImage, 'left');
-                    setTextWrap(lastImage, 'around');
+                    setAlignment(lastImage, 'left'); // Default to left for new images
                 }
             };
         })();
         """
         self.exec_js(script)
+
 
     def setup_content_change_notification(self):
         script = """
@@ -1881,6 +2303,9 @@ class EditorWindow(Adw.ApplicationWindow):
     def clear_ignore_changes(self):
         self.ignore_changes = False
         return False
+
+
+
 
 if __name__ == "__main__":
     app = Writer()
