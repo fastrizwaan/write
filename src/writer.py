@@ -517,7 +517,7 @@ class EditorWindow(Adw.ApplicationWindow):
             }
 
             // Handling variables
-            let selectedElement = null;  // Can be img or textbox
+            let selectedElement = null;
             let resizeHandles = [];
             let isDragging = false;
             let isResizing = false;
@@ -525,6 +525,7 @@ class EditorWindow(Adw.ApplicationWindow):
             let resizeStartWidth, resizeStartHeight;
             let currentResizeHandle = null;
             let contextMenu = null;
+            let savedRange = null;  // To store caret position/selection
             
             // Current element properties
             let currentBorderWidth = '0';
@@ -542,11 +543,14 @@ class EditorWindow(Adw.ApplicationWindow):
                     cursor: move;
                 }
                 .textbox {
-                    display: inline-block;
                     padding: 5px;
                     min-width: 100px;
                     min-height: 20px;
                     overflow-wrap: break-word;
+                }
+                img.floating, .textbox.floating {
+                    position: absolute;
+                    z-index: 10;
                 }
                 img.align-left, .textbox.align-left {
                     float: left;
@@ -560,11 +564,6 @@ class EditorWindow(Adw.ApplicationWindow):
                     display: block;
                     margin: 10px auto;
                     float: none;
-                }
-                img.align-inline, .textbox.align-inline {
-                    display: inline;
-                    vertical-align: middle;
-                    margin: 0 5px;
                 }
                 .resize-handle {
                     position: absolute;
@@ -636,14 +635,32 @@ class EditorWindow(Adw.ApplicationWindow):
                 }
                 .transparent-color {
                     background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), 
-                                      linear-gradient(-45deg, #ccc 25%, transparent 25%), 
-                                      linear-gradient(45deg, transparent 75%, #ccc 75%), 
-                                      linear-gradient(-45deg, transparent 75%, #ccc 75%);
+                                    linear-gradient(-45deg, #ccc 25%, transparent 25%), 
+                                    linear-gradient(45deg, transparent 75%, #ccc 75%), 
+                                    linear-gradient(-45deg, transparent 75%, #ccc 75%);
                     background-size: 10px 10px;
                     background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
                 }
             `;
             document.head.appendChild(style);
+
+            // Save current selection
+            function saveSelection() {
+                const sel = window.getSelection();
+                if (sel.rangeCount > 0) {
+                    savedRange = sel.getRangeAt(0).cloneRange();
+                }
+            }
+
+            // Restore saved selection
+            function restoreSelection() {
+                if (savedRange) {
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(savedRange);
+                    editor.focus();
+                }
+            }
 
             // Create resize handles
             function createResizeHandles(element) {
@@ -651,10 +668,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 const container = document.createElement('div');
                 container.style.position = 'absolute';
                 
-                const rect = element.getBoundingClientRect();
-                const editorRect = editor.getBoundingClientRect();
-                container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
-                container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                if (element.classList.contains('floating')) {
+                    container.style.left = element.style.left;
+                    container.style.top = element.style.top;
+                } else {
+                    const rect = element.getBoundingClientRect();
+                    const editorRect = editor.getBoundingClientRect();
+                    container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
+                    container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                }
                 container.style.width = element.offsetWidth + 'px';
                 container.style.height = element.offsetHeight + 'px';
                 
@@ -694,11 +716,15 @@ class EditorWindow(Adw.ApplicationWindow):
                 
                 const container = editor.querySelector('.resize-container');
                 if (container) {
-                    const rect = selectedElement.getBoundingClientRect();
-                    const editorRect = editor.getBoundingClientRect();
-                    
-                    container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
-                    container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                    if (selectedElement.classList.contains('floating')) {
+                        container.style.left = selectedElement.style.left;
+                        container.style.top = selectedElement.style.top;
+                    } else {
+                        const rect = selectedElement.getBoundingClientRect();
+                        const editorRect = editor.getBoundingClientRect();
+                        container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
+                        container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
+                    }
                     container.style.width = selectedElement.offsetWidth + 'px';
                     container.style.height = selectedElement.offsetHeight + 'px';
                 }
@@ -715,6 +741,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 resizeStartHeight = selectedElement.offsetHeight;
                 selectedElement.classList.add('resizing');
                 
+                saveSelection();  // Save selection before resizing
                 document.addEventListener('mousemove', handleResize);
                 document.addEventListener('mouseup', stopResize);
             }
@@ -760,6 +787,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (selectedElement) selectedElement.classList.remove('resizing');
                 document.removeEventListener('mousemove', handleResize);
                 document.removeEventListener('mouseup', stopResize);
+                restoreSelection();  // Restore selection after resizing
             }
 
             // Set border properties
@@ -790,8 +818,6 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (selectedElement) selectedElement.classList.remove('selected');
                 selectedElement = element;
                 selectedElement.classList.add('selected');
-                
-                element.dataset.alignment = getCurrentAlignment(element);
                 
                 const computedStyle = window.getComputedStyle(element);
                 currentBorderWidth = element.style.borderWidth ? parseInt(element.style.borderWidth) + '' : '0';
@@ -831,7 +857,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 const colorInput = document.createElement('input');
                 colorInput.type = 'color';
                 colorInput.value = initialColor !== 'transparent' && initialColor !== 'rgba(0, 0, 0, 0)' ? 
-                                  initialColor : '#000000';
+                                initialColor : '#000000';
                 colorInput.style.width = '100%';
                 colorInput.style.height = '40px';
                 colorInput.style.marginBottom = '15px';
@@ -872,12 +898,14 @@ class EditorWindow(Adw.ApplicationWindow):
                 
                 cancelButton.addEventListener('click', () => {
                     document.body.removeChild(overlay);
+                    restoreSelection();
                 });
                 
                 okButton.addEventListener('click', () => {
                     const finalColor = transparentCheckbox.checked ? 'transparent' : colorInput.value;
                     callback(finalColor);
                     document.body.removeChild(overlay);
+                    restoreSelection();
                 });
                 
                 buttonContainer.appendChild(cancelButton);
@@ -895,6 +923,7 @@ class EditorWindow(Adw.ApplicationWindow):
             // Create context menu
             function createContextMenu(x, y) {
                 removeContextMenu();
+                saveSelection();  // Save selection before showing menu
                 contextMenu = document.createElement('div');
                 contextMenu.className = 'context-menu';
                 contextMenu.style.left = x + 'px';
@@ -903,11 +932,14 @@ class EditorWindow(Adw.ApplicationWindow):
                 const isTextbox = selectedElement.classList.contains('textbox');
                 const menuItems = [
                     ...(isTextbox ? [{ label: 'Edit Text', action: 'edit-text' }] : []),
-                    { label: 'Alignment', submenu: [
-                        { label: 'Left', action: 'align-left' },
-                        { label: 'Center', action: 'align-center' },
-                        { label: 'Right', action: 'align-right' },
-                        { label: 'In-Line with Text', action: 'align-inline' }
+                    { label: 'Position', submenu: [
+                        { label: 'Float', action: 'float' },
+                        { label: 'Inline Left', action: 'inline-left' },
+                        { label: 'Inline Right', action: 'inline-right' },
+                    ]},
+                    { label: 'Layer', submenu: [
+                        { label: 'Bring Forward', action: 'bring-forward' },
+                        { label: 'Send Backward', action: 'send-backward' }
                     ]},
                     { label: 'Border Width', submenu: [
                         { label: 'None', action: 'border-width-0' },
@@ -981,11 +1013,17 @@ class EditorWindow(Adw.ApplicationWindow):
                         
                         menuItem.appendChild(document.createTextNode(item.label));
                         
-                        if (item.action.startsWith('align-')) {
-                            const alignType = item.action.replace('align-', '');
-                            if (selectedElement && alignType === getCurrentAlignment(selectedElement)) {
-                                menuItem.style.fontWeight = 'bold';
-                            }
+                        if (item.action === 'float' && selectedElement.classList.contains('floating')) {
+                            menuItem.style.fontWeight = 'bold';
+                        }
+                        if (item.action === 'inline-left' && selectedElement.classList.contains('align-left')) {
+                            menuItem.style.fontWeight = 'bold';
+                        }
+                        if (item.action === 'inline-right' && selectedElement.classList.contains('align-right')) {
+                            menuItem.style.fontWeight = 'bold';
+                        }
+                        if (item.action === 'center' && selectedElement.classList.contains('align-center')) {
+                            menuItem.style.fontWeight = 'bold';
                         }
                         
                         if (item.action.startsWith('border-width-')) {
@@ -1006,6 +1044,7 @@ class EditorWindow(Adw.ApplicationWindow):
                             e.stopPropagation();
                             handleContextMenuAction(item.action);
                             removeContextMenu();
+                            restoreSelection();  // Restore selection after action
                         });
                         parent.appendChild(menuItem);
                     }
@@ -1017,36 +1056,68 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (!selectedElement) return;
                 
                 if (action === 'edit-text') {
-                // Temporarily disable editor contenteditable
-                editor.contentEditable = false;
-                
-                selectedElement.contentEditable = true;
-                selectedElement.focus();
-                
-                const range = document.createRange();
-                const sel = window.getSelection();
-                range.selectNodeContents(selectedElement);
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                
-                const finishEditing = () => {
-                    selectedElement.contentEditable = false;
-                    editor.contentEditable = true;
-                    selectElement(selectedElement);
-                };
-                
-                selectedElement.addEventListener('blur', finishEditing, { once: true });
-                selectedElement.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        selectedElement.blur();
-                    }
-                });
-                } else if (action.startsWith('align-')) {
-                    const alignType = action.replace('align-', '');
-                    setAlignment(selectedElement, alignType);
-                    selectedElement.dataset.alignment = alignType;
+                    editor.contentEditable = false;
+                    selectedElement.contentEditable = true;
+                    selectedElement.focus();
+                    
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    range.selectNodeContents(selectedElement);
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    
+                    const finishEditing = () => {
+                        selectedElement.contentEditable = false;
+                        editor.contentEditable = true;
+                        selectElement(selectedElement);
+                        restoreSelection();  // Restore editor selection after editing
+                    };
+                    
+                    selectedElement.addEventListener('blur', finishEditing, { once: true });
+                    selectedElement.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            selectedElement.blur();
+                        }
+                    });
+                } else if (action === 'float') {
+                    selectedElement.classList.add('floating');
+                    selectedElement.style.position = 'absolute';
+                    if (!selectedElement.style.left) selectedElement.style.left = '50px';
+                    if (!selectedElement.style.top) selectedElement.style.top = '50px';
+                    selectedElement.style.float = '';
+                    selectedElement.style.display = 'block';
+                    selectedElement.style.margin = '0';
+                    selectedElement.classList.remove('align-left', 'align-right', 'align-center');
+                    updateResizeHandles();
+                } else if (action === 'inline-left') {
+                    selectedElement.classList.remove('floating');
+                    selectedElement.style.position = '';
+                    selectedElement.style.left = '';
+                    selectedElement.style.top = '';
+                    selectedElement.style.zIndex = '';
+                    setAlignment(selectedElement, 'left');
+                } else if (action === 'inline-right') {
+                    selectedElement.classList.remove('floating');
+                    selectedElement.style.position = '';
+                    selectedElement.style.left = '';
+                    selectedElement.style.top = '';
+                    selectedElement.style.zIndex = '';
+                    setAlignment(selectedElement, 'right');
+                } else if (action === 'center') {
+                    selectedElement.classList.remove('floating');
+                    selectedElement.style.position = '';
+                    selectedElement.style.left = '';
+                    selectedElement.style.top = '';
+                    selectedElement.style.zIndex = '';
+                    setAlignment(selectedElement, 'center');
+                } else if (action === 'bring-forward') {
+                    let currentZ = parseInt(selectedElement.style.zIndex) || 10;
+                    selectedElement.style.zIndex = currentZ + 1;
+                } else if (action === 'send-backward') {
+                    let currentZ = parseInt(selectedElement.style.zIndex) || 10;
+                    selectedElement.style.zIndex = Math.max(0, currentZ - 1);
                 } else if (action.startsWith('border-width-')) {
                     const width = action.replace('border-width-', '');
                     setBorder(selectedElement, width, null, null);
@@ -1054,10 +1125,12 @@ class EditorWindow(Adw.ApplicationWindow):
                     const style = action.replace('border-style-', '');
                     setBorder(selectedElement, null, style, null);
                 } else if (action === 'border-color') {
+                    saveSelection();  // Save selection before showing dialog
                     createColorPickerDialog('Choose Border Color', currentBorderColor, (color) => {
                         setBorder(selectedElement, null, null, color);
                     });
                 } else if (action === 'bg-color') {
+                    saveSelection();  // Save selection before showing dialog
                     createColorPickerDialog('Choose Background Color', currentBackgroundColor, (color) => {
                         setBackgroundColor(selectedElement, color);
                     });
@@ -1073,9 +1146,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 lastX = e.clientX;
                 lastY = e.clientY;
                 
-                const alignment = getCurrentAlignment(element);
-                element.dataset.alignment = alignment;
-                
+                saveSelection();  // Save selection before dragging
                 document.addEventListener('mousemove', handleDrag);
                 document.addEventListener('mouseup', stopDrag);
             }
@@ -1084,23 +1155,32 @@ class EditorWindow(Adw.ApplicationWindow):
             function handleDrag(e) {
                 if (!isDragging || !selectedElement) return;
                 
-                const temp = document.createElement('span');
-                temp.style.display = 'inline-block';
-                temp.style.width = '1px';
-                temp.style.height = '1px';
-                
-                const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-                if (range) {
-                    range.insertNode(temp);
+                if (selectedElement.classList.contains('floating')) {
+                    const deltaX = e.clientX - lastX;
+                    const deltaY = e.clientY - lastY;
+                    let currentLeft = parseInt(selectedElement.style.left) || 0;
+                    let currentTop = parseInt(selectedElement.style.top) || 0;
                     
-                    const alignment = selectedElement.dataset.alignment || 'left';
+                    selectedElement.style.left = (currentLeft + deltaX) + 'px';
+                    selectedElement.style.top = (currentTop + deltaY) + 'px';
                     
-                    temp.parentNode.insertBefore(selectedElement, temp);
-                    temp.remove();
-                    
-                    setAlignment(selectedElement, alignment);
+                    lastX = e.clientX;
+                    lastY = e.clientY;
                     
                     updateResizeHandles();
+                } else {
+                    const temp = document.createElement('span');
+                    temp.style.display = 'inline-block';
+                    temp.style.width = '1px';
+                    temp.style.height = '1px';
+                    
+                    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                    if (range) {
+                        range.insertNode(temp);
+                        temp.parentNode.insertBefore(selectedElement, temp);
+                        temp.remove();
+                        updateResizeHandles();
+                    }
                 }
             }
 
@@ -1109,11 +1189,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 isDragging = false;
                 document.removeEventListener('mousemove', handleDrag);
                 document.removeEventListener('mouseup', stopDrag);
-                
-                if (selectedElement) {
-                    const alignment = selectedElement.dataset.alignment || getCurrentAlignment(selectedElement);
-                    setAlignment(selectedElement, alignment);
-                }
+                restoreSelection();  // Restore selection after dragging
             }
 
             // Get current alignment
@@ -1121,13 +1197,12 @@ class EditorWindow(Adw.ApplicationWindow):
                 if (element.classList.contains('align-left')) return 'left';
                 if (element.classList.contains('align-right')) return 'right';
                 if (element.classList.contains('align-center')) return 'center';
-                if (element.classList.contains('align-inline')) return 'inline';
                 return 'left'; // Default
             }
 
             // Clear alignment classes
             function clearAlignmentClasses(element) {
-                element.classList.remove('align-left', 'align-right', 'align-center', 'align-inline');
+                element.classList.remove('align-left', 'align-right', 'align-center');
             }
 
             // Set alignment
@@ -1154,12 +1229,6 @@ class EditorWindow(Adw.ApplicationWindow):
                         element.style.display = 'block';
                         element.style.margin = '10px auto';
                         break;
-                    case 'inline':
-                        element.classList.add('align-inline');
-                        element.style.display = 'inline';
-                        element.style.verticalAlign = 'middle';
-                        element.style.margin = '0 5px';
-                        break;
                 }
                 
                 if (selectedElement === element) {
@@ -1174,6 +1243,7 @@ class EditorWindow(Adw.ApplicationWindow):
                     selectedElement = null;
                 }
                 removeResizeHandles();
+                restoreSelection();  // Restore selection when deselecting
             }
 
             // Delete element
@@ -1195,6 +1265,7 @@ class EditorWindow(Adw.ApplicationWindow):
             function closeContextMenuOnClickOutside(e) {
                 if (contextMenu && !contextMenu.contains(e.target)) {
                     removeContextMenu();
+                    restoreSelection();  // Restore selection when closing menu
                 }
             }
 
@@ -1239,11 +1310,7 @@ class EditorWindow(Adw.ApplicationWindow):
             editor.querySelectorAll('img, .textbox').forEach(element => {
                 element.contentEditable = false;
                 element.draggable = true;
-                
-                if (!element.classList.contains('align-left') && 
-                    !element.classList.contains('align-right') && 
-                    !element.classList.contains('align-center') && 
-                    !element.classList.contains('align-inline')) {
+                if (!element.classList.contains('floating')) {
                     setAlignment(element, 'left');
                 }
             });
@@ -1255,14 +1322,7 @@ class EditorWindow(Adw.ApplicationWindow):
                         if (node.tagName === 'IMG' || (node.classList && node.classList.contains('textbox'))) {
                             node.contentEditable = false;
                             node.draggable = true;
-                            
-                            const hasAlignmentClass = node.classList && 
-                                (node.classList.contains('align-left') || 
-                                 node.classList.contains('align-right') || 
-                                 node.classList.contains('align-center') || 
-                                 node.classList.contains('align-inline'));
-                            
-                            if (!hasAlignmentClass) {
+                            if (!node.classList.contains('floating')) {
                                 setAlignment(node, 'left');
                             }
                         }
@@ -1273,6 +1333,7 @@ class EditorWindow(Adw.ApplicationWindow):
 
             // Function to insert and select textbox
             window.insertAndSelectTextbox = function(text) {
+                saveSelection();  // Save selection before insertion
                 document.execCommand('insertHTML', false, 
                     '<div class="textbox" contenteditable="false" draggable="true" ' +
                     'style="display: inline-block; padding: 5px; border: 1px solid #000; min-width: 100px;">' + 
@@ -1283,6 +1344,7 @@ class EditorWindow(Adw.ApplicationWindow):
                     selectElement(lastTextbox);
                     setAlignment(lastTextbox, 'left');
                 }
+                restoreSelection();  // Restore selection after insertion
             };
         })();
         """
@@ -2320,848 +2382,6 @@ class EditorWindow(Adw.ApplicationWindow):
         self.exec_js(script)
         self.webview.grab_focus()
 ######################################################
-    def setup_image_and_textbox_handling(self):
-        script = """
-        (function() {
-            const editor = document.getElementById('editor');
-            if (!editor) {
-                console.error('Editor element not found');
-                return;
-            }
-
-            // Handling variables
-            let selectedElement = null;
-            let resizeHandles = [];
-            let isDragging = false;
-            let isResizing = false;
-            let lastX, lastY;
-            let resizeStartWidth, resizeStartHeight;
-            let currentResizeHandle = null;
-            let contextMenu = null;
-            let savedRange = null;  // To store caret position/selection
-            
-            // Current element properties
-            let currentBorderWidth = '0';
-            let currentBorderStyle = 'solid';
-            let currentBorderColor = '#000000';
-            let currentBackgroundColor = 'transparent';
-            
-            // Add additional CSS dynamically
-            const style = document.createElement('style');
-            style.textContent = `
-                img, .textbox {
-                    max-width: 100%;
-                    box-sizing: border-box;
-                    background-color: transparent;
-                    cursor: move;
-                }
-                .textbox {
-                    padding: 5px;
-                    min-width: 100px;
-                    min-height: 20px;
-                    overflow-wrap: break-word;
-                }
-                img.floating, .textbox.floating {
-                    position: absolute;
-                    z-index: 10;
-                }
-                img.align-left, .textbox.align-left {
-                    float: left;
-                    margin: 0 15px 10px 0;
-                }
-                img.align-right, .textbox.align-right {
-                    float: right;
-                    margin: 0 0 10px 15px;
-                }
-                img.align-center, .textbox.align-center {
-                    display: block;
-                    margin: 10px auto;
-                    float: none;
-                }
-                .resize-handle {
-                    position: absolute;
-                    width: 10px;
-                    height: 10px;
-                    background-color: #4285f4;
-                    border: 1px solid white;
-                    border-radius: 50%;
-                    z-index: 999;
-                }
-                .tl-handle { top: -5px; left: -5px; cursor: nw-resize; }
-                .tr-handle { top: -5px; right: -5px; cursor: ne-resize; }
-                .bl-handle { bottom: -5px; left: -5px; cursor: sw-resize; }
-                .br-handle { bottom: -5px; right: -5px; cursor: se-resize; }
-                img.selected, .textbox.selected {
-                    outline: 2px solid #4285f4;
-                    box-shadow: 0 0 10px rgba(66, 133, 244, 0.5);
-                }
-                img.resizing, .textbox.resizing {
-                    outline: 2px dashed #4285f4;
-                }
-                .context-menu {
-                    position: absolute;
-                    border: 1px solid;
-                    border-radius: 4px;
-                    padding: 5px 0;
-                    z-index: 1000;
-                    min-width: 150px;
-                }
-                .context-menu-item {
-                    padding: 8px 15px;
-                    cursor: pointer;
-                    user-select: none;
-                }
-                .context-menu-separator {
-                    height: 1px;
-                    margin: 5px 0;
-                }
-                .context-menu-submenu {
-                    position: relative;
-                }
-                .context-menu-submenu::after {
-                    content: '▶';
-                    position: absolute;
-                    right: 10px;
-                    top: 8px;
-                    font-size: 10px;
-                }
-                .context-menu-submenu-content {
-                    display: none;
-                    position: absolute;
-                    left: 100%;
-                    top: 0;
-                    border: 1px solid;
-                    border-radius: 4px;
-                    padding: 5px 0;
-                    min-width: 150px;
-                }
-                .context-menu-submenu:hover .context-menu-submenu-content {
-                    display: block;
-                }
-                .color-preview {
-                    display: inline-block;
-                    width: 15px;
-                    height: 15px;
-                    border: 1px solid #ccc;
-                    margin-right: 5px;
-                    vertical-align: middle;
-                }
-                .transparent-color {
-                    background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), 
-                                    linear-gradient(-45deg, #ccc 25%, transparent 25%), 
-                                    linear-gradient(45deg, transparent 75%, #ccc 75%), 
-                                    linear-gradient(-45deg, transparent 75%, #ccc 75%);
-                    background-size: 10px 10px;
-                    background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
-                }
-            `;
-            document.head.appendChild(style);
-
-            // Save current selection
-            function saveSelection() {
-                const sel = window.getSelection();
-                if (sel.rangeCount > 0) {
-                    savedRange = sel.getRangeAt(0).cloneRange();
-                }
-            }
-
-            // Restore saved selection
-            function restoreSelection() {
-                if (savedRange) {
-                    const sel = window.getSelection();
-                    sel.removeAllRanges();
-                    sel.addRange(savedRange);
-                    editor.focus();
-                }
-            }
-
-            // Create resize handles
-            function createResizeHandles(element) {
-                removeResizeHandles();
-                const container = document.createElement('div');
-                container.style.position = 'absolute';
-                
-                if (element.classList.contains('floating')) {
-                    container.style.left = element.style.left;
-                    container.style.top = element.style.top;
-                } else {
-                    const rect = element.getBoundingClientRect();
-                    const editorRect = editor.getBoundingClientRect();
-                    container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
-                    container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
-                }
-                container.style.width = element.offsetWidth + 'px';
-                container.style.height = element.offsetHeight + 'px';
-                
-                container.style.pointerEvents = 'none';
-                container.className = 'resize-container';
-
-                const positions = ['tl', 'tr', 'bl', 'br'];
-                positions.forEach(pos => {
-                    const handle = document.createElement('div');
-                    handle.className = `resize-handle ${pos}-handle`;
-                    handle.style.pointerEvents = 'all';
-                    handle.dataset.position = pos;
-                    
-                    handle.addEventListener('mousedown', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        startResize(e, handle);
-                    });
-                    
-                    container.appendChild(handle);
-                    resizeHandles.push(handle);
-                });
-
-                editor.appendChild(container);
-            }
-
-            // Remove resize handles
-            function removeResizeHandles() {
-                const container = editor.querySelector('.resize-container');
-                if (container) container.remove();
-                resizeHandles = [];
-            }
-
-            // Update resize handles position
-            function updateResizeHandles() {
-                if (!selectedElement) return;
-                
-                const container = editor.querySelector('.resize-container');
-                if (container) {
-                    if (selectedElement.classList.contains('floating')) {
-                        container.style.left = selectedElement.style.left;
-                        container.style.top = selectedElement.style.top;
-                    } else {
-                        const rect = selectedElement.getBoundingClientRect();
-                        const editorRect = editor.getBoundingClientRect();
-                        container.style.left = (rect.left - editorRect.left + editor.scrollLeft) + 'px';
-                        container.style.top = (rect.top - editorRect.top + editor.scrollTop) + 'px';
-                    }
-                    container.style.width = selectedElement.offsetWidth + 'px';
-                    container.style.height = selectedElement.offsetHeight + 'px';
-                }
-            }
-
-            // Start resizing
-            function startResize(e, handle) {
-                if (!selectedElement) return;
-                isResizing = true;
-                currentResizeHandle = handle;
-                lastX = e.clientX;
-                lastY = e.clientY;
-                resizeStartWidth = selectedElement.offsetWidth;
-                resizeStartHeight = selectedElement.offsetHeight;
-                selectedElement.classList.add('resizing');
-                
-                saveSelection();  // Save selection before resizing
-                document.addEventListener('mousemove', handleResize);
-                document.addEventListener('mouseup', stopResize);
-            }
-
-            // Handle resize
-            function handleResize(e) {
-                if (!isResizing || !selectedElement || !currentResizeHandle) return;
-                
-                const deltaX = e.clientX - lastX;
-                const deltaY = e.clientY - lastY;
-                const position = currentResizeHandle.dataset.position;
-                
-                let newWidth = resizeStartWidth;
-                let newHeight = resizeStartHeight;
-                
-                if (position.includes('r')) newWidth += deltaX;
-                if (position.includes('l')) newWidth -= deltaX;
-                if (position.includes('b')) newHeight += deltaY;
-                if (position.includes('t')) newHeight -= deltaY;
-                
-                if (e.shiftKey) {
-                    const aspectRatio = resizeStartWidth / resizeStartHeight;
-                    if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                        newHeight = newWidth / aspectRatio;
-                    } else {
-                        newWidth = newHeight * aspectRatio;
-                    }
-                }
-                
-                newWidth = Math.max(20, newWidth);
-                newHeight = Math.max(20, newHeight);
-                
-                selectedElement.style.width = newWidth + 'px';
-                selectedElement.style.height = newHeight + 'px';
-                
-                updateResizeHandles();
-            }
-
-            // Stop resizing
-            function stopResize() {
-                isResizing = false;
-                currentResizeHandle = null;
-                if (selectedElement) selectedElement.classList.remove('resizing');
-                document.removeEventListener('mousemove', handleResize);
-                document.removeEventListener('mouseup', stopResize);
-                restoreSelection();  // Restore selection after resizing
-            }
-
-            // Set border properties
-            function setBorder(element, width, style, color) {
-                if (!element) return;
-                
-                if (width) currentBorderWidth = width;
-                if (style) currentBorderStyle = style;
-                if (color) currentBorderColor = color;
-                
-                if (currentBorderWidth === '0') {
-                    element.style.border = 'none';
-                } else {
-                    element.style.border = `${currentBorderWidth}px ${currentBorderStyle} ${currentBorderColor}`;
-                }
-            }
-
-            // Set background color
-            function setBackgroundColor(element, color) {
-                if (!element) return;
-                
-                currentBackgroundColor = color;
-                element.style.backgroundColor = color;
-            }
-
-            // Select element
-            function selectElement(element) {
-                if (selectedElement) selectedElement.classList.remove('selected');
-                selectedElement = element;
-                selectedElement.classList.add('selected');
-                
-                const computedStyle = window.getComputedStyle(element);
-                currentBorderWidth = element.style.borderWidth ? parseInt(element.style.borderWidth) + '' : '0';
-                currentBorderStyle = element.style.borderStyle || computedStyle.borderStyle || 'solid';
-                currentBorderColor = element.style.borderColor || computedStyle.borderColor || '#000000';
-                currentBackgroundColor = element.style.backgroundColor || computedStyle.backgroundColor || 'transparent';
-                
-                createResizeHandles(element);
-            }
-
-            // Create color picker dialog
-            function createColorPickerDialog(title, initialColor, callback) {
-                const overlay = document.createElement('div');
-                overlay.style.position = 'fixed';
-                overlay.style.top = '0';
-                overlay.style.left = '0';
-                overlay.style.width = '100%';
-                overlay.style.height = '100%';
-                overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-                overlay.style.zIndex = '10000';
-                overlay.style.display = 'flex';
-                overlay.style.justifyContent = 'center';
-                overlay.style.alignItems = 'center';
-                
-                const dialog = document.createElement('div');
-                dialog.style.backgroundColor = 'white';
-                dialog.style.borderRadius = '5px';
-                dialog.style.padding = '20px';
-                dialog.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
-                dialog.style.maxWidth = '300px';
-                dialog.style.width = '100%';
-                
-                const titleElem = document.createElement('h3');
-                titleElem.textContent = title;
-                titleElem.style.margin = '0 0 15px 0';
-                
-                const colorInput = document.createElement('input');
-                colorInput.type = 'color';
-                colorInput.value = initialColor !== 'transparent' && initialColor !== 'rgba(0, 0, 0, 0)' ? 
-                                initialColor : '#000000';
-                colorInput.style.width = '100%';
-                colorInput.style.height = '40px';
-                colorInput.style.marginBottom = '15px';
-                
-                const transparentContainer = document.createElement('div');
-                transparentContainer.style.marginBottom = '15px';
-                
-                const transparentCheckbox = document.createElement('input');
-                transparentCheckbox.type = 'checkbox';
-                transparentCheckbox.id = 'transparent-checkbox';
-                transparentCheckbox.checked = initialColor === 'transparent' || initialColor === 'rgba(0, 0, 0, 0)';
-                
-                const transparentLabel = document.createElement('label');
-                transparentLabel.htmlFor = 'transparent-checkbox';
-                transparentLabel.textContent = 'Transparent';
-                transparentLabel.style.marginLeft = '5px';
-                
-                transparentContainer.appendChild(transparentCheckbox);
-                transparentContainer.appendChild(transparentLabel);
-                
-                transparentCheckbox.addEventListener('change', () => {
-                    colorInput.disabled = transparentCheckbox.checked;
-                });
-                colorInput.disabled = transparentCheckbox.checked;
-                
-                const buttonContainer = document.createElement('div');
-                buttonContainer.style.display = 'flex';
-                buttonContainer.style.justifyContent = 'flex-end';
-                
-                const cancelButton = document.createElement('button');
-                cancelButton.textContent = 'Cancel';
-                cancelButton.style.padding = '5px 10px';
-                cancelButton.style.marginRight = '10px';
-                
-                const okButton = document.createElement('button');
-                okButton.textContent = 'OK';
-                okButton.style.padding = '5px 10px';
-                
-                cancelButton.addEventListener('click', () => {
-                    document.body.removeChild(overlay);
-                    restoreSelection();
-                });
-                
-                okButton.addEventListener('click', () => {
-                    const finalColor = transparentCheckbox.checked ? 'transparent' : colorInput.value;
-                    callback(finalColor);
-                    document.body.removeChild(overlay);
-                    restoreSelection();
-                });
-                
-                buttonContainer.appendChild(cancelButton);
-                buttonContainer.appendChild(okButton);
-                
-                dialog.appendChild(titleElem);
-                dialog.appendChild(colorInput);
-                dialog.appendChild(transparentContainer);
-                dialog.appendChild(buttonContainer);
-                
-                overlay.appendChild(dialog);
-                document.body.appendChild(overlay);
-            }
-
-            // Create context menu
-            function createContextMenu(x, y) {
-                removeContextMenu();
-                saveSelection();  // Save selection before showing menu
-                contextMenu = document.createElement('div');
-                contextMenu.className = 'context-menu';
-                contextMenu.style.left = x + 'px';
-                contextMenu.style.top = y + 'px';
-                
-                const isTextbox = selectedElement.classList.contains('textbox');
-                const menuItems = [
-                    ...(isTextbox ? [{ label: 'Edit Text', action: 'edit-text' }] : []),
-                    { label: 'Position', submenu: [
-                        { label: 'Float', action: 'float' },
-                        { label: 'Inline Left', action: 'inline-left' },
-                        { label: 'Inline Right', action: 'inline-right' },
-                    ]},
-                    { label: 'Layer', submenu: [
-                        { label: 'Bring Forward', action: 'bring-forward' },
-                        { label: 'Send Backward', action: 'send-backward' }
-                    ]},
-                    { label: 'Border Width', submenu: [
-                        { label: 'None', action: 'border-width-0' },
-                        { label: '1px', action: 'border-width-1' },
-                        { label: '2px', action: 'border-width-2' },
-                        { label: '3px', action: 'border-width-3' },
-                        { label: '4px', action: 'border-width-4' },
-                        { label: '5px', action: 'border-width-5' },
-                        { label: '6px', action: 'border-width-6' }
-                    ]},
-                    { label: 'Border Style', submenu: [
-                        { label: 'Solid', action: 'border-style-solid' },
-                        { label: 'Dotted', action: 'border-style-dotted' },
-                        { label: 'Dashed', action: 'border-style-dashed' },
-                        { label: 'Double', action: 'border-style-double' }
-                    ]},
-                    { label: 'Border Color...', action: 'border-color' },
-                    { label: 'Background Color...', action: 'bg-color' },
-                    { type: 'separator' },
-                    { label: 'Delete', action: 'delete' }
-                ];
-                
-                createMenuItems(contextMenu, menuItems);
-                document.body.appendChild(contextMenu);
-                setTimeout(() => {
-                    document.addEventListener('click', closeContextMenuOnClickOutside);
-                }, 0);
-            }
-
-            // Create menu items
-            function createMenuItems(parent, items) {
-                items.forEach(item => {
-                    if (item.type === 'separator') {
-                        const separator = document.createElement('div');
-                        separator.className = 'context-menu-separator';
-                        parent.appendChild(separator);
-                    } else if (item.submenu) {
-                        const submenuItem = document.createElement('div');
-                        submenuItem.className = 'context-menu-item context-menu-submenu';
-                        submenuItem.textContent = item.label;
-                        
-                        const submenuContent = document.createElement('div');
-                        submenuContent.className = 'context-menu-submenu-content';
-                        createMenuItems(submenuContent, item.submenu);
-                        
-                        submenuItem.appendChild(submenuContent);
-                        parent.appendChild(submenuItem);
-                    } else {
-                        const menuItem = document.createElement('div');
-                        menuItem.className = 'context-menu-item';
-                        
-                        if (item.action === 'border-color') {
-                            const colorPreview = document.createElement('span');
-                            colorPreview.className = 'color-preview';
-                            if (currentBorderColor === 'transparent' || currentBorderColor === 'rgba(0, 0, 0, 0)') {
-                                colorPreview.classList.add('transparent-color');
-                            } else {
-                                colorPreview.style.backgroundColor = currentBorderColor;
-                            }
-                            menuItem.appendChild(colorPreview);
-                        } else if (item.action === 'bg-color') {
-                            const colorPreview = document.createElement('span');
-                            colorPreview.className = 'color-preview';
-                            if (currentBackgroundColor === 'transparent' || currentBackgroundColor === 'rgba(0, 0, 0, 0)') {
-                                colorPreview.classList.add('transparent-color');
-                            } else {
-                                colorPreview.style.backgroundColor = currentBackgroundColor;
-                            }
-                            menuItem.appendChild(colorPreview);
-                        }
-                        
-                        menuItem.appendChild(document.createTextNode(item.label));
-                        
-                        if (item.action === 'float' && selectedElement.classList.contains('floating')) {
-                            menuItem.style.fontWeight = 'bold';
-                        }
-                        if (item.action === 'inline-left' && selectedElement.classList.contains('align-left')) {
-                            menuItem.style.fontWeight = 'bold';
-                        }
-                        if (item.action === 'inline-right' && selectedElement.classList.contains('align-right')) {
-                            menuItem.style.fontWeight = 'bold';
-                        }
-                        if (item.action === 'center' && selectedElement.classList.contains('align-center')) {
-                            menuItem.style.fontWeight = 'bold';
-                        }
-                        
-                        if (item.action.startsWith('border-width-')) {
-                            const width = item.action.replace('border-width-', '');
-                            if (selectedElement && width === currentBorderWidth) {
-                                menuItem.style.fontWeight = 'bold';
-                            }
-                        }
-                        
-                        if (item.action.startsWith('border-style-')) {
-                            const style = item.action.replace('border-style-', '');
-                            if (selectedElement && style === currentBorderStyle) {
-                                menuItem.style.fontWeight = 'bold';
-                            }
-                        }
-                        
-                        menuItem.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            handleContextMenuAction(item.action);
-                            removeContextMenu();
-                            restoreSelection();  // Restore selection after action
-                        });
-                        parent.appendChild(menuItem);
-                    }
-                });
-            }
-
-            // Handle context menu action
-            function handleContextMenuAction(action) {
-                if (!selectedElement) return;
-                
-                if (action === 'edit-text') {
-                    editor.contentEditable = false;
-                    selectedElement.contentEditable = true;
-                    selectedElement.focus();
-                    
-                    const range = document.createRange();
-                    const sel = window.getSelection();
-                    range.selectNodeContents(selectedElement);
-                    range.collapse(false);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                    
-                    const finishEditing = () => {
-                        selectedElement.contentEditable = false;
-                        editor.contentEditable = true;
-                        selectElement(selectedElement);
-                        restoreSelection();  // Restore editor selection after editing
-                    };
-                    
-                    selectedElement.addEventListener('blur', finishEditing, { once: true });
-                    selectedElement.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            selectedElement.blur();
-                        }
-                    });
-                } else if (action === 'float') {
-                    selectedElement.classList.add('floating');
-                    selectedElement.style.position = 'absolute';
-                    if (!selectedElement.style.left) selectedElement.style.left = '50px';
-                    if (!selectedElement.style.top) selectedElement.style.top = '50px';
-                    selectedElement.style.float = '';
-                    selectedElement.style.display = 'block';
-                    selectedElement.style.margin = '0';
-                    selectedElement.classList.remove('align-left', 'align-right', 'align-center');
-                    updateResizeHandles();
-                } else if (action === 'inline-left') {
-                    selectedElement.classList.remove('floating');
-                    selectedElement.style.position = '';
-                    selectedElement.style.left = '';
-                    selectedElement.style.top = '';
-                    selectedElement.style.zIndex = '';
-                    setAlignment(selectedElement, 'left');
-                } else if (action === 'inline-right') {
-                    selectedElement.classList.remove('floating');
-                    selectedElement.style.position = '';
-                    selectedElement.style.left = '';
-                    selectedElement.style.top = '';
-                    selectedElement.style.zIndex = '';
-                    setAlignment(selectedElement, 'right');
-                } else if (action === 'center') {
-                    selectedElement.classList.remove('floating');
-                    selectedElement.style.position = '';
-                    selectedElement.style.left = '';
-                    selectedElement.style.top = '';
-                    selectedElement.style.zIndex = '';
-                    setAlignment(selectedElement, 'center');
-                } else if (action === 'bring-forward') {
-                    let currentZ = parseInt(selectedElement.style.zIndex) || 10;
-                    selectedElement.style.zIndex = currentZ + 1;
-                } else if (action === 'send-backward') {
-                    let currentZ = parseInt(selectedElement.style.zIndex) || 10;
-                    selectedElement.style.zIndex = Math.max(0, currentZ - 1);
-                } else if (action.startsWith('border-width-')) {
-                    const width = action.replace('border-width-', '');
-                    setBorder(selectedElement, width, null, null);
-                } else if (action.startsWith('border-style-')) {
-                    const style = action.replace('border-style-', '');
-                    setBorder(selectedElement, null, style, null);
-                } else if (action === 'border-color') {
-                    saveSelection();  // Save selection before showing dialog
-                    createColorPickerDialog('Choose Border Color', currentBorderColor, (color) => {
-                        setBorder(selectedElement, null, null, color);
-                    });
-                } else if (action === 'bg-color') {
-                    saveSelection();  // Save selection before showing dialog
-                    createColorPickerDialog('Choose Background Color', currentBackgroundColor, (color) => {
-                        setBackgroundColor(selectedElement, color);
-                    });
-                } else if (action === 'delete') {
-                    deleteElement(selectedElement);
-                }
-            }
-
-            // Start dragging
-            function startDrag(e, element) {
-                if (isResizing) return;
-                isDragging = true;
-                lastX = e.clientX;
-                lastY = e.clientY;
-                
-                saveSelection();  // Save selection before dragging
-                document.addEventListener('mousemove', handleDrag);
-                document.addEventListener('mouseup', stopDrag);
-            }
-
-            // Handle drag
-            function handleDrag(e) {
-                if (!isDragging || !selectedElement) return;
-                
-                if (selectedElement.classList.contains('floating')) {
-                    const deltaX = e.clientX - lastX;
-                    const deltaY = e.clientY - lastY;
-                    let currentLeft = parseInt(selectedElement.style.left) || 0;
-                    let currentTop = parseInt(selectedElement.style.top) || 0;
-                    
-                    selectedElement.style.left = (currentLeft + deltaX) + 'px';
-                    selectedElement.style.top = (currentTop + deltaY) + 'px';
-                    
-                    lastX = e.clientX;
-                    lastY = e.clientY;
-                    
-                    updateResizeHandles();
-                } else {
-                    const temp = document.createElement('span');
-                    temp.style.display = 'inline-block';
-                    temp.style.width = '1px';
-                    temp.style.height = '1px';
-                    
-                    const range = document.caretRangeFromPoint(e.clientX, e.clientY);
-                    if (range) {
-                        range.insertNode(temp);
-                        temp.parentNode.insertBefore(selectedElement, temp);
-                        temp.remove();
-                        updateResizeHandles();
-                    }
-                }
-            }
-
-            // Stop dragging
-            function stopDrag() {
-                isDragging = false;
-                document.removeEventListener('mousemove', handleDrag);
-                document.removeEventListener('mouseup', stopDrag);
-                restoreSelection();  // Restore selection after dragging
-            }
-
-            // Get current alignment
-            function getCurrentAlignment(element) {
-                if (element.classList.contains('align-left')) return 'left';
-                if (element.classList.contains('align-right')) return 'right';
-                if (element.classList.contains('align-center')) return 'center';
-                return 'left'; // Default
-            }
-
-            // Clear alignment classes
-            function clearAlignmentClasses(element) {
-                element.classList.remove('align-left', 'align-right', 'align-center');
-            }
-
-            // Set alignment
-            function setAlignment(element, alignment) {
-                clearAlignmentClasses(element);
-                
-                element.style.float = '';
-                element.style.display = '';
-                element.style.margin = '';
-                
-                switch (alignment) {
-                    case 'left':
-                        element.classList.add('align-left');
-                        element.style.float = 'left';
-                        element.style.margin = '0 15px 10px 0';
-                        break;
-                    case 'right':
-                        element.classList.add('align-right');
-                        element.style.float = 'right';
-                        element.style.margin = '0 0 10px 15px';
-                        break;
-                    case 'center':
-                        element.classList.add('align-center');
-                        element.style.display = 'block';
-                        element.style.margin = '10px auto';
-                        break;
-                }
-                
-                if (selectedElement === element) {
-                    updateResizeHandles();
-                }
-            }
-
-            // Deselect element
-            function deselectElement() {
-                if (selectedElement) {
-                    selectedElement.classList.remove('selected');
-                    selectedElement = null;
-                }
-                removeResizeHandles();
-                restoreSelection();  // Restore selection when deselecting
-            }
-
-            // Delete element
-            function deleteElement(element) {
-                deselectElement();
-                element.remove();
-            }
-
-            // Remove context menu
-            function removeContextMenu() {
-                if (contextMenu) {
-                    document.removeEventListener('click', closeContextMenuOnClickOutside);
-                    contextMenu.remove();
-                    contextMenu = null;
-                }
-            }
-
-            // Close context menu on click outside
-            function closeContextMenuOnClickOutside(e) {
-                if (contextMenu && !contextMenu.contains(e.target)) {
-                    removeContextMenu();
-                    restoreSelection();  // Restore selection when closing menu
-                }
-            }
-
-            // Event listeners
-            editor.addEventListener('click', (e) => {
-                removeContextMenu();
-                if (e.target.tagName === 'IMG' || e.target.classList.contains('textbox')) {
-                    e.preventDefault();
-                    selectElement(e.target);
-                } else {
-                    deselectElement();
-                }
-            });
-
-            editor.addEventListener('contextmenu', (e) => {
-                if (e.target.tagName === 'IMG' || e.target.classList.contains('textbox')) {
-                    e.preventDefault();
-                    selectElement(e.target);
-                    createContextMenu(e.clientX, e.clientY);
-                }
-            });
-
-            editor.addEventListener('mousedown', (e) => {
-                if ((e.target.tagName === 'IMG' || e.target.classList.contains('textbox')) && e.button === 0) {
-                    e.preventDefault();
-                    if (selectedElement !== e.target) {
-                        selectElement(e.target);
-                    }
-                    startDrag(e, e.target);
-                }
-            });
-
-            window.addEventListener('scroll', () => {
-                if (selectedElement) updateResizeHandles();
-            });
-
-            editor.addEventListener('scroll', () => {
-                if (selectedElement) updateResizeHandles();
-            });
-
-            // Initialize existing elements
-            editor.querySelectorAll('img, .textbox').forEach(element => {
-                element.contentEditable = false;
-                element.draggable = true;
-                if (!element.classList.contains('floating')) {
-                    setAlignment(element, 'left');
-                }
-            });
-
-            // Mutation observer for new elements
-            const observer = new MutationObserver(mutations => {
-                mutations.forEach(mutation => {
-                    mutation.addedNodes.forEach(node => {
-                        if (node.tagName === 'IMG' || (node.classList && node.classList.contains('textbox'))) {
-                            node.contentEditable = false;
-                            node.draggable = true;
-                            if (!node.classList.contains('floating')) {
-                                setAlignment(node, 'left');
-                            }
-                        }
-                    });
-                });
-            });
-            observer.observe(editor, { childList: true, subtree: true });
-
-            // Function to insert and select textbox
-            window.insertAndSelectTextbox = function(text) {
-                saveSelection();  // Save selection before insertion
-                document.execCommand('insertHTML', false, 
-                    '<div class="textbox" contenteditable="false" draggable="true" ' +
-                    'style="display: inline-block; padding: 5px; border: 1px solid #000; min-width: 100px;">' + 
-                    text + '</div>');
-                const textboxes = editor.querySelectorAll('.textbox');
-                const lastTextbox = textboxes[textboxes.length - 1];
-                if (lastTextbox) {
-                    selectElement(lastTextbox);
-                    setAlignment(lastTextbox, 'left');
-                }
-                restoreSelection();  // Restore selection after insertion
-            };
-        })();
-        """
-        self.exec_js(script)
 
 if __name__ == "__main__":
     app = Writer()
