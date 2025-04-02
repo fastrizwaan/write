@@ -416,7 +416,7 @@ class EditorWindow(Adw.ApplicationWindow):
         self.exec_js(
             f"document.execCommand('insertHTML', false, "
             f"'<div class=\"textbox\" contenteditable=\"false\" draggable=\"true\" "
-            f"style=\"display: inline-block; padding: 5px; border: 1px solid #000; min-width: 100px;\">{default_text}</div>');"
+            f"style=\"display: inline-block; padding: 5px; border: 1px dashed #000; min-width: 100px;\">{default_text}</div>');"
         )
         self.webview.grab_focus()
         
@@ -529,7 +529,7 @@ class EditorWindow(Adw.ApplicationWindow):
             
             // Current element properties
             let currentBorderWidth = '0';
-            let currentBorderStyle = 'solid';
+            let currentBorderStyle = 'dashed';
             let currentBorderColor = '#000000';
             let currentBackgroundColor = 'transparent';
             
@@ -821,7 +821,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 
                 const computedStyle = window.getComputedStyle(element);
                 currentBorderWidth = element.style.borderWidth ? parseInt(element.style.borderWidth) + '' : '0';
-                currentBorderStyle = element.style.borderStyle || computedStyle.borderStyle || 'solid';
+                currentBorderStyle = element.style.borderStyle || computedStyle.borderStyle || 'dashed';
                 currentBorderColor = element.style.borderColor || computedStyle.borderColor || '#000000';
                 currentBackgroundColor = element.style.backgroundColor || computedStyle.backgroundColor || 'transparent';
                 
@@ -1336,7 +1336,7 @@ class EditorWindow(Adw.ApplicationWindow):
                 saveSelection();  // Save selection before insertion
                 document.execCommand('insertHTML', false, 
                     '<div class="textbox" contenteditable="false" draggable="true" ' +
-                    'style="display: inline-block; padding: 5px; border: 1px solid #000; min-width: 100px;">' + 
+                    'style="display: inline-block; padding: 5px; border: 1px dashed #000; min-width: 100px;">' + 
                     text + '</div>');
                 const textboxes = editor.querySelectorAll('.textbox');
                 const lastTextbox = textboxes[textboxes.length - 1];
@@ -2367,7 +2367,7 @@ class EditorWindow(Adw.ApplicationWindow):
             textbox.draggable = true;
             textbox.style.display = 'inline-block';
             textbox.style.padding = '5px';
-            textbox.style.border = '1px dashed';
+            textbox.style.border = '1px dashed #000';
             textbox.style.minWidth = '100px';
             textbox.innerHTML = '{default_text}';
             
